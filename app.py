@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 
 # 網頁基本設定
 st.set_page_config(page_title="數位金融：全方位投資導航", layout="wide")
-st.title("🛡️ AlphaCheck 7.0: 投資決策與風險評估系統")
+st.title("🛡️ : 投資決策與風險評估系統")
 
 
 tab1, tab2 = st.tabs(["🔍 個股診斷 (該不該買)", "🛡️ 投資組合風險評估"])
