@@ -88,3 +88,30 @@ with tab2:
                 if portfolio_beta < 0.9: st.info("評估結果：【風險：小】")
                 elif portfolio_beta <= 1.4: st.warning("評估結果：【風險：中】")
                 else: st.error("評估結果：【風險：大】")
+                    # 在 st.title 之後加入這段
+st.title("📈 AlphaCheck 4.0: 全方位投資導航")
+
+# --- 市場大盤指標列 ---
+with st.container():
+    col_tnx, col_vix, col_sp500 = st.columns(3)
+    
+    try:
+        # 抓取 10年美債殖利率 (^TNX)
+        tnx_data = yf.Ticker("^TNX").history(period="1d")
+        tnx_yield = tnx_data['Close'].iloc[-1]
+        tnx_change = tnx_yield - tnx_data['Open'].iloc[-1]
+        col_tnx.metric("🇺🇸 美債 10Y 殖利率", f"{tnx_yield:.2f}%", f"{tnx_change:.2f}%")
+        
+        # 抓取 恐慌指數 (VIX)
+        vix_data = yf.Ticker("^VIX").history(period="1d")
+        vix_value = vix_data['Close'].iloc[-1]
+        col_vix.metric("😱 恐慌指數 (VIX)", f"{vix_value:.2f}")
+        
+        # 抓取 S&P 500 (^GSPC)
+        spy_data = yf.Ticker("^GSPC").history(period="1d")
+        spy_price = spy_data['Close'].iloc[-1]
+        col_sp500.metric("🇺🇸 S&P 500 指數", f"{int(spy_price)}")
+    except:
+        st.write("暫時無法獲取市場即時指標")
+
+st.divider()
