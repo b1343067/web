@@ -8,29 +8,7 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="數位金融：全方位投資導航", layout="wide")
 st.title("🛡️ AlphaCheck 7.0: 投資決策與風險評估系統")
 
-# --- 市場大盤指標：美債 10Y 深度分析 ---
-st.subheader("🇺🇸 全球定價之錨：10 年期美債殖利率動態")
-try:
-    tnx = yf.Ticker("^TNX")
-    hist_1y = tnx.history(period="1y")
-    current_yield = hist_1y['Close'].iloc[-1]
-    recent_high = hist_1y['Close'].max()
-    gap = recent_high - current_yield
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("目前殖利率", f"{current_yield:.2f}%")
-    col2.metric("近一年最高點", f"{recent_high:.2f}%")
-    col3.metric("距高點回落", f"-{gap:.2f}%", delta_color="normal")
-
-    fig_tnx = px.line(hist_1y, y='Close', title="美債 10Y 殖利率一年走勢圖", labels={'Close': 'Yield (%)'})
-    fig_tnx.update_traces(line_color='#FF4B4B')
-    st.plotly_chart(fig_tnx, use_container_width=True)
-except:
-    st.write("暫時無法獲取美債即時數據")
-
-st.divider()
-
-# 建立分頁
 tab1, tab2 = st.tabs(["🔍 個股診斷 (該不該買)", "🛡️ 投資組合風險評估"])
 
 # --- 第一頁：個股查詢系統 (已修正 VOO 評分) ---
@@ -91,6 +69,9 @@ with tab1:
         
         except Exception as e:
             st.error(f"分析失敗：請確認代號是否正確。錯誤訊息: {e}")
+            st.divider()
+
+            # 建立分頁
 
 # --- 第二頁：投資組合風險 ---
 with tab2:
@@ -120,3 +101,25 @@ with tab2:
                 st.metric("組合加權 Beta 值", f"{portfolio_beta:.2f}")
                 risk_level = "大" if portfolio_beta > 1.4 else ("中" if portfolio_beta >= 0.9 else "小")
                 st.write(f"### 總體風險比率：**{risk_level}**")
+                # --- 市場大盤指標：美債 10Y 深度分析 ---
+st.subheader("🇺🇸 全球定價之錨：10 年期美債殖利率動態")
+try:
+    tnx = yf.Ticker("^TNX")
+    hist_1y = tnx.history(period="1y")
+    current_yield = hist_1y['Close'].iloc[-1]
+    recent_high = hist_1y['Close'].max()
+    gap = recent_high - current_yield
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("目前殖利率", f"{current_yield:.2f}%")
+    col2.metric("近一年最高點", f"{recent_high:.2f}%")
+    col3.metric("距高點回落", f"-{gap:.2f}%", delta_color="normal")
+
+    fig_tnx = px.line(hist_1y, y='Close', title="美債 10Y 殖利率一年走勢圖", labels={'Close': 'Yield (%)'})
+    fig_tnx.update_traces(line_color='#FF4B4B')
+    st.plotly_chart(fig_tnx, use_container_width=True)
+except:
+    st.write("暫時無法獲取美債即時數據")
+
+
+
