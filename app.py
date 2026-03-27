@@ -55,29 +55,27 @@ with tab1:
             fig_stock.update_layout(title=f"{ticker} 價格與趨勢分析", xaxis_title="日期", yaxis_title="股價 (USD)")
             st.plotly_chart(fig_stock, use_container_width=True)
 
-            # 決策分數
-            current_price = hist['Close'].iloc[-1]
-            ma200 = hist['Close'].rolling(200).mean().iloc[-1]
-            ma20 = hist['Close'].rolling(20).mean().iloc[-1]
-            pe = info.get('forwardPE', 0)
-            
-            score = 0
-            if current_price > ma200: score += 40
-            if current_price > ma20: score += 20
-            if 0 < pe < 60: score += 20
-            if info.get('recommendationKey') == 'buy': score += 20
+           # --- 優化後的決策邏輯 ---
+score = 0
+total_possible_score = 100 # 總分上限
 
-            # 顯示結果
-            res_col1, res_col2 = st.columns([1, 2])
-            with res_col1:
-                st.metric("綜合評分", f"{score} / 100")
-                if score >= 75: st.success("🚀 建議：強力買入")
-                elif score >= 50: st.warning("⚖️ 建議：中立觀望")
-                else: st.error("⚠️ 建議：風險較高")
-            with res_col2:
-                st.write(f"目前 P/E: {pe:.2f} | 200MA: {ma200:.2f} | 20MA: {ma20:.2f}")
-        except:
-            st.error("代號有誤或無法抓取資料")
+# 1. 均線邏輯 (這對 ETF 依然有效)
+if current_price > ma200: score += 40
+if current_price > ma20: score += 20
+
+# 2. 處理 P/E (如果抓不到數據就不扣分，或改用其他權重)
+if pe_ratio > 0:
+    if pe_ratio < 60: score += 20
+else:
+    # 如果是 ETF 抓不到 P/E，我們把這 20 分權重分配給均線或直接給基礎分
+    score += 10 
+
+# 3. 處理推薦評級
+if info.get('recommendationKey') == 'buy':
+    score += 20
+elif info.get('quoteType') == 'ETF':
+    # 如果是 ETF，通常沒有推薦評級，我們給予 10 分的基礎信任分
+    score += 10
 
 # --- 第二頁：投資組合風險 ---
 with tab2:
