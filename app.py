@@ -72,6 +72,40 @@ with tab1:
             st.divider()
 
             # 建立分頁
+@st.cache_data(ttl=3600) # 資料快取一小時
+def get_stock_data(ticker):
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1y")
+    info = stock.info
+    return stock, hist, info
+
+# --- 優化 2：寫一個專門計算 RSI 的函式 ---
+def calculate_rsi(data, window=14):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+# --- 主程式介面 ---
+st.title("🛡️ AlphaCheck Pro: 金融科技投資導航")
+
+# 在個股分析區塊使用優化後的邏輯
+with st.expander("🔍 點擊展開：個股深度分析", expanded=True):
+    ticker = st.text_input("輸入代號", "NVDA")
+    if ticker:
+        stock, hist, info = get_stock_data(ticker)
+        
+        # 計算 RSI
+        hist['RSI'] = calculate_rsi(hist['Close'])
+        current_rsi = hist['RSI'].iloc[-1]
+        
+        # 顯示 RSI 指標
+        st.metric("RSI (14天強弱指標)", f"{current_rsi:.2f}")
+        if current_rsi > 70:
+            st.warning("⚠️ 目前市場情緒過熱 (RSI > 70)，追高風險大。")
+        elif current_rsi < 30:
+            st.success("💎 目前市場情緒過冷 (RSI < 30)，可能具備反彈機會。")
 
 # --- 第二頁：投資組合風險 ---
 with tab2:
