@@ -46,56 +46,63 @@ def get_ai_prediction_model(df, days=7):
     preds = model.predict(future_n)
     std_dev = df['Close'].tail(30).std() * 0.7
     last_d = df_p['Date'].max()
-    future_d = [last_date + timedelta(days=i) for i in range(1, days + 1)] if 'last_date' in locals() else [df_p['Date'].max() + timedelta(days=i) for i in range(1, days + 1)]
+    future_d = [last_d + timedelta(days=i) for i in range(1, days + 1)]
     return future_d, preds, std_dev
 
 # ==========================================
-# 2. UI 旗艦級 CSS 視覺優化
+# 2. UI 旗艦級視覺強化 (字體清晰度修復)
 # ==========================================
 
-st.set_page_config(page_title="AlphaCheck Elite 16.0", layout="wide")
+st.set_page_config(page_title="AlphaCheck Elite 17.0", layout="wide")
 
-# 強制全局深藍色調，修復側邊欄色差與提示框
 st.markdown("""
     <style>
-    /* 全局背景與側邊欄背景同步 */
+    /* 1. 強制全局背景與側邊欄背景 */
     .stApp, [data-testid="stSidebar"] {
         background-color: #0f172a !important;
     }
-    /* 側邊欄文字顏色修正 */
-    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-        color: #f1f5f9 !important;
+    
+    /* 2. 強制所有文字顏色為清晰的 Off-White */
+    h1, h2, h3, p, span, label, .stMarkdown {
+        color: #f8fafc !important;
     }
-    /* 指令盒：專業毛玻璃 */
+
+    /* 3. 專門針對 Metrics 的標籤字體加強 (解決下方字體看不清的問題) */
+    [data-testid="stMetricLabel"] {
+        color: #94a3b8 !important; /* 淺灰色標籤 */
+        font-weight: 500 !important;
+        font-size: 16px !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #60a5fa !important; /* 亮藍色數值 */
+        font-weight: bold !important;
+    }
+
+    /* 4. 側邊欄 info box 徹底重寫 (解決看不見字的問題) */
+    .stAlert {
+        background-color: #1e293b !important;
+        border: 1px solid #60a5fa !important;
+        color: white !important;
+    }
+    .stAlert div {
+        color: white !important;
+    }
+
+    /* 5. 決策盒 (毛玻璃質感) */
     .decision-card {
         padding: 25px;
         border-radius: 12px;
         margin-bottom: 20px;
         border: 1px solid;
         backdrop-filter: blur(10px);
-        color: white !important;
-    }
-    /* 提示框 (Info Box) 顏色修正：深色底白字 */
-    .stAlert {
-        background-color: #1e293b !important;
-        color: #f1f5f9 !important;
-        border: 1px solid #334155 !important;
-    }
-    /* 指標卡片 (Metrics) */
-    [data-testid="stMetricValue"] { font-size: 28px !important; color: #60a5fa !important; }
-    div[data-testid="metric-container"] {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        padding: 15px;
-        border-radius: 10px;
     }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
-st.caption(f"數位金融科技系專案 | 版本 16.0 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.caption(f"數位金融科技系專案 | 版本 17.0 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# --- 側邊欄：質感修復 ---
+# --- 側邊欄 ---
 st.sidebar.title("📊 市場監控中心")
 with st.sidebar:
     st.markdown("### 🌍 全球宏觀指標")
@@ -104,26 +111,24 @@ with st.sidebar:
         cur_y = tnx_h['Close'].iloc[-1]
         st.metric("美債 10Y 殖利率", f"{cur_y:.2f}%", delta=f"{cur_y - tnx_h['Close'].iloc[-2]:.2f}%")
         
-        # 側邊欄小圖美化
         fig_side = px.line(tnx_h.tail(30), y='Close', template="plotly_dark")
         fig_side.update_traces(line_color='#60a5fa', line_width=2)
         fig_side.update_layout(height=120, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
     
     st.divider()
-    st.info("💡 系統已同步 UI 色調，啟用 AI 信心區間預測。")
+    st.info("💡 系統已同步 UI 色調，AI 預測路徑已準備就緒。")
 
 # --- 功能分頁 ---
-tab1, tab2, tab3 = st.tabs(["🎯 AI 深度診斷", "🛡️ 投資組合風險", "📖 理論與模型說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 深度診斷", "🛡️ 投資組合風險", "📖 模型理論說明"])
 
-# --- Tab 1: AI 診斷 ---
 with tab1:
     col_in, _ = st.columns([2, 2])
-    raw_ticker = col_in.text_input("輸入美股代號 (支援 BRK/B)", "NVDA")
+    raw_ticker = col_in.text_input("輸入美股代號 (如 BRK/B, VOO, NVDA)", "NVDA")
     
     if raw_ticker:
         target = raw_ticker.upper().replace("/", "-").strip()
-        with st.spinner('AI 引擎正在掃描市場數據...'):
+        with st.spinner('AI 引擎正在計算趨勢...'):
             hist, info, err = fetch_financial_data(target)
             
             if err:
@@ -132,7 +137,7 @@ with tab1:
                 hist = calculate_indicators(hist)
                 f_dates, f_preds, std = get_ai_prediction_model(hist)
                 
-                # --- A. 決策盒：質感配色 ---
+                # --- A. 決策盒：強制白色文字 ---
                 cur_p = hist['Close'].iloc[-1]
                 target_p = f_preds[-1]
                 expected_ret = ((target_p - cur_p) / cur_p) * 100
@@ -148,36 +153,35 @@ with tab1:
                     <div class="decision-card" style="background-color: {b_bg}; border-color: {b_border};">
                         <h3 style="margin:0; color: white !important;">🤖 AI 智能評級：{b_text}</h3>
                         <p style="margin-top:10px; font-size:18px; color: white !important;">
-                            預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b>
+                            預估 7 日目標：<b>${target_p:.2f}</b> | 預期收益：<b>{expected_ret:+.2f}%</b>
                         </p>
                     </div>
                 """, unsafe_allow_html=True)
 
-                # --- B. 專業 Plotly 圖表 ---
+                # --- B. 圖表 ---
                 plot_data = hist.tail(120)
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'].tail(120), line=dict(color='#64748b', width=2), name='200MA'))
-                # AI 預測
                 fig.add_trace(go.Scatter(x=f_dates + f_dates[::-1], y=list(f_preds + std) + list(f_preds - std)[::-1], fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預估'))
                 fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#60a5fa', dash='dot', width=2), name='AI 預測路徑'))
                 
                 fig.update_layout(template="plotly_dark", height=550, xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig, use_container_width=True)
 
-                # --- C. 指標卡片 ---
+                # --- C. 指標卡片 (解決字體看不清問題) ---
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("即時股價", f"${cur_p:.2f}")
                 c2.metric("RSI 指標", f"{hist['RSI'].iloc[-1]:.1f}")
                 c3.metric("預估 P/E", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2 & 3 維持原本邏輯 ---
+# --- Tab 2: 投資組合 ---
 with tab2:
     st.header("🛡️ 組合風險量化測試")
     p_df = pd.DataFrame([{"代號": "NVDA", "金額": 5000}, {"代號": "VOO", "金額": 5000}])
     edited = st.data_editor(p_df, num_rows="dynamic", key="final_p_edit")
-    if st.button("開始評估"):
+    if st.button("運行壓力測試"):
         total = edited["金額"].sum()
         w_beta = 0
         p_list = []
@@ -191,5 +195,9 @@ with tab2:
         st.plotly_chart(px.pie(p_list, values='權重', names='股票', hole=0.4, title="資產配比"))
 
 with tab3:
-    st.header("📖 模型說明")
-    st.markdown("本系統採用 **OLS 線性回歸** 進行預測，並實作了 **毛玻璃介面** 與 **數據補全** 技術。")
+    st.header("📖 模型理論與參數")
+    st.markdown("""
+    1. **AI 預測引擎**：採用 `OLS Linear Regression`，針對近 120 日收盤價進行時間序列擬合。
+    2. **信心區間**：基於最近 30 日歷史波動率（$\sigma$）計算之動態包絡線。
+    3. **均線系統**：200MA 長線過濾器。
+    """)
