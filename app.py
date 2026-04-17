@@ -9,11 +9,12 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
 # ==========================================
-# 1. 核心引擎：數據處理與 AI 擬合
+# 1. 核心計算引擎 (數據、指標、AI預測)
 # ==========================================
 
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
+    """抓取數據並自動修正代號 (如 BRK/B -> BRK-B)"""
     try:
         clean_ticker = ticker_name.upper().replace("/", "-").strip()
         ticker_obj = yf.Ticker(clean_ticker)
@@ -22,17 +23,20 @@ def fetch_financial_data(ticker_name):
             info = ticker_obj.info
         except:
             info = {}
-        if history.empty: return None, None, f"找不到代號 {clean_ticker}"
+        if history.empty:
+            return None, None, f"找不到代號 {clean_ticker}"
         return history, info, None
     except Exception as e:
         return None, None, str(e)
 
 def calculate_indicators(df):
+    """計算 RSI 與三重專業均線 (10, 50, 200)"""
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
+    
     # 三重均線系統
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA50'] = df['Close'].rolling(window=50).mean()
@@ -40,10 +44,13 @@ def calculate_indicators(df):
     return df
 
 def get_ai_prediction_model(df, days=7):
+    """AI 多項式趨勢擬合 + 信心陰影區間"""
     df_p = df.tail(90).reset_index()
     df_p['Date_n'] = pd.to_datetime(df_p['Date']).apply(lambda x: x.toordinal())
     X = df_p[['Date_n']].values
     y = df_p['Close'].values
+    
+    # 二階多項式擬合
     poly = PolynomialFeatures(degree=2)
     X_poly = poly.fit_transform(X)
     model = LinearRegression().fit(X_poly, y)
@@ -52,6 +59,7 @@ def get_ai_prediction_model(df, days=7):
     future_n = np.array([last_d_n + i for i in range(1, days + 1)]).reshape(-1, 1)
     preds = model.predict(poly.transform(future_n))
     
+    # 信心區間：隨時間擴張
     base_std = df['Close'].tail(30).std()
     intervals = [base_std * (1 + (i * 0.2)) for i in range(len(preds))]
     
@@ -60,7 +68,7 @@ def get_ai_prediction_model(df, days=7):
     return future_d, preds, intervals
 
 # ==========================================
-# 2. UI 旗艦視覺設計
+# 2. UI 視覺設計 (Midnight Navy & Glowing UI)
 # ==========================================
 
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
@@ -70,89 +78,135 @@ st.markdown("""
     .stApp, [data-testid="stSidebar"] { background-color: #0f172a !important; }
     h1, h2, h3, p, span, label, .stMarkdown { color: #f1f5f9 !important; }
     
-    /* Metrics 標籤強化 */
+    /* Metrics 標籤與數值清晰度 */
     [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 16px !important; }
     [data-testid="stMetricValue"] { color: #60a5fa !important; font-weight: bold !important; }
 
-    /* 按鈕：極簡發光線條感 */
+    /* 按鈕：極簡發光線條 */
     .stButton>button {
-        background-color: transparent !important; color: #60a5fa !important;
-        border: 2px solid #60a5fa !important; border-radius: 25px !important;
-        width: 100% !important; font-weight: 700 !important;
-        transition: 0.3s all;
+        background-color: transparent !important;
+        color: #60a5fa !important;
+        border: 2px solid #60a5fa !important;
+        border-radius: 25px !important;
+        padding: 10px 40px !important;
+        font-weight: 700 !important;
+        width: 100% !important;
+        transition: 0.3s all ease-in-out;
     }
-    .stButton>button:hover { 
+    .stButton>button:hover {
         background-color: rgba(96, 165, 250, 0.1) !important;
         box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important;
+        color: #ffffff !important;
     }
 
-    /* 專業決策卡片 */
-    .report-card { padding: 30px; border-radius: 15px; border: 1px solid #334155; backdrop-filter: blur(10px); }
-    div[data-testid="stDataEditor"] { border: 1px solid #334155 !important; border-radius: 10px; background-color: #1e293b !important; }
+    /* 專業報告卡片 */
+    .report-card {
+        padding: 30px; border-radius: 15px; margin-bottom: 25px;
+        border: 1px solid #334155; backdrop-filter: blur(10px);
+    }
+    div[data-testid="stDataEditor"] {
+        border: 1px solid #334155 !important; border-radius: 10px;
+        background-color: #1e293b !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
+st.caption(f"數位金融科技系專案 | 即時更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
     tnx_h, _, _ = fetch_financial_data("^TNX")
     if tnx_h is not None:
-        st.metric("美債 10Y 殖利率", f"{tnx_h['Close'].iloc[-1]:.2f}%")
-        fig_side = px.line(tnx_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
+        cur_y = tnx_h['Close'].iloc[-1]
+        st.metric("美債 10Y 殖利率", f"{cur_y:.2f}%", delta=f"{cur_y - tnx_h['Close'].iloc[-2]:.2f}%")
+        fig_side = px.line(tnx_h.tail(45), y='Close', template="plotly_dark")
+        fig_side.update_traces(line_color='#60a5fa', line_width=2)
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_side, use_container_width=True)
+        st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
     st.divider()
-    st.info("💡 系統已啟用多向度風險偵測與動態語意評價系統。")
+    st.info("💡 系統已啟用 AI 多項式擬合與組合深度診斷邏輯。")
 
-tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合分析報告", "📖 模型理論說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合分析報告", "📖 模型說明"])
 
-# --- Tab 1: AI 診斷 (均線 + RSI + 曲線陰影) ---
+# --- Tab 1: AI 診斷 (K線 + 三重均線 + AI 預測陰影) ---
 with tab1:
     col_in, _ = st.columns([2, 2])
-    raw_ticker = col_in.text_input("輸入美股代號 (如 BRK/B, VOO, NVDA)", "NVDA")
+    raw_ticker = col_in.text_input("輸入美股代號 (如 VOO, NVDA, BRK/B)", "VOO")
+    
     if raw_ticker:
         target = raw_ticker.upper().replace("/", "-").strip()
-        hist, info, err = fetch_financial_data(target)
-        if not err:
-            hist = calculate_indicators(hist)
-            f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
-            cur_p = hist['Close'].iloc[-1]
-            ret = ((f_preds[-1] - cur_p) / cur_p) * 100
-            
-            bg = "rgba(20, 83, 45, 0.4)" if ret > 2 else "rgba(127, 29, 29, 0.4)" if ret < -2 else "rgba(30, 41, 59, 0.6)"
-            st.markdown(f"<div class='report-card' style='background-color:{bg}; border-color:white;'><h3>🤖 AI 評級</h3><p>預期變動：{ret:+.2f}%</p></div>", unsafe_allow_html=True)
-            
-            fig = go.Figure(data=[go.Candlestick(x=hist.tail(150).index, open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name='走勢')])
-            fig.add_trace(go.Scatter(x=hist.tail(150).index, y=hist['MA50'].tail(150), line=dict(color='#fbbf24', width=1), name='50MA'))
-            fig.add_trace(go.Scatter(x=hist.tail(150).index, y=hist['MA200'].tail(150), line=dict(color='#94a3b8', width=2), name='200MA'))
-            fig.add_trace(go.Scatter(x=f_dates+f_dates[::-1], y=[f_preds[i]+f_intervals[i] for i in range(len(f_preds))]+[f_preds[i]-f_intervals[i] for i in range(len(f_preds))][::-1], fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預期'))
-            fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='white', dash='dash', width=2), name='AI 路徑'))
-            fig.update_layout(template="plotly_dark", height=550, xaxis_rangeslider_visible=False, legend=dict(font=dict(color="white")))
-            st.plotly_chart(fig, use_container_width=True)
+        with st.spinner('AI 引擎正在掃描技術面...'):
+            hist, info, err = fetch_financial_data(target)
+            if not err:
+                hist = calculate_indicators(hist)
+                f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
+                
+                # A. 評級盒
+                cur_p = hist['Close'].iloc[-1]
+                target_p = f_preds[-1]
+                expected_ret = ((target_p - cur_p) / cur_p) * 100
+                
+                if expected_ret > 2.0: b_bg, b_border, b_text = "rgba(20, 83, 45, 0.4)", "#4ade80", "多頭趨勢 / Buy"
+                elif expected_ret < -2.0: b_bg, b_border, b_text = "rgba(127, 29, 29, 0.4)", "#f87171", "空頭預警 / Sell"
+                else: b_bg, b_border, b_text = "rgba(30, 41, 59, 0.6)", "#94a3b8", "中立觀望 / Hold"
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("即時股價", f"${cur_p:.2f}")
-            c2.metric("RSI (相對強弱)", f"{hist['RSI'].iloc[-1]:.1f}")
-            c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
-            c4.metric("市場 Beta", f"{info.get('beta', 'N/A')}")
+                st.markdown(f"""
+                    <div class="report-card" style="background-color: {b_bg}; border-color: {b_border};">
+                        <h3 style="margin:0; color: white !important;">🤖 AI 智能評級：{b_text}</h3>
+                        <p style="margin-top:10px; font-size:18px; color: white !important;">
+                            預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b>
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
 
-# --- Tab 2: 真正「長腦袋」的分析報告 ---
+                # B. 主圖表 (K線 + 均線 + AI)
+                plot_data = hist.tail(150)
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
+                
+                # 繪製均線
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'))
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'))
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'))
+                
+                # AI 信心陰影
+                fig.add_trace(go.Scatter(
+                    x=f_dates + f_dates[::-1],
+                    y=[f_preds[i] + f_intervals[i] for i in range(len(f_preds))] + [f_preds[i] - f_intervals[i] for i in range(len(f_preds))][::-1],
+                    fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預期'
+                ))
+                # AI 預測虛線
+                fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#ffffff', dash='dash', width=2), name='AI 核心路徑'))
+                
+                fig.update_layout(
+                    template="plotly_dark", height=600, xaxis_rangeslider_visible=False,
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#f1f5f9", size=12))
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # C. 指標卡片
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("即時股價", f"${cur_p:.2f}")
+                c2.metric("RSI 指標 (14D)", f"{hist['RSI'].iloc[-1]:.1f}")
+                c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
+                c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
+
+# --- Tab 2: 投資組合分析 (核心—衛星動態診斷) ---
 with tab2:
     st.markdown("### 🛡️ 投資組合智能量化診斷報告")
     p_df = pd.DataFrame([
-        {"代號": "QQQM", "金額": 5000}, {"代號": "QQQ", "金額": 5000},
-        {"代號": "TSLA", "金額": 2000}, {"代號": "VOO", "金額": 3000}
+        {"代號": "VOO", "金額": 5000}, {"代號": "NVDA", "金額": 2000}
     ])
-    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True, key="portfolio_table")
+    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True, key="portfolio_editor")
     
-    if st.button("🚀 執行 AI 智能深度診斷"):
-        with st.spinner('AI 正在偵測資產相關性與多樣性...'):
+    if st.button("🚀 執行 AI 智能評價分析"):
+        with st.spinner('正在分析資產相關性與多樣性...'):
             total_val = edited["金額"].sum()
             results = []
             weighted_beta, weighted_rsi, tech_count = 0, 0, 0
-            # 定義高成長科技清單
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SOXX', 'SMH']
 
             for _, row in edited.iterrows():
@@ -169,48 +223,49 @@ with tab2:
             res_df = pd.DataFrame(results)
             st.divider()
             
-            # --- AI 診斷核心邏輯 (修正 Bug) ---
+            # --- AI 診斷動態邏輯 ---
             top_stock = res_df.sort_values('權重', ascending=False)['股票'].iloc[0]
+            high_beta_stock = res_df.sort_values('Beta', ascending=False)['股票'].iloc[0]
             tech_ratio = tech_count / len(res_df) if len(res_df) > 0 else 0
             has_redundancy = "QQQ" in res_df['股票'].values and "QQQM" in res_df['股票'].values
 
-            if tech_ratio > 0.8 and weighted_beta > 1.1:
+            if tech_ratio > 0.8 and weighted_beta > 1.15:
                 eval_title = "高風險：極端成長型集中"
                 eval_color = "#f87171"
-                eval_content = f"警告：組合雖然具備結構，但實質上**極度向科技股傾斜**。這是一個典型的『進可攻、退不可守』配置。由於標的相關性過高，一旦科技產業修正，**{top_stock}** 與衛星標的將同步受挫。"
+                eval_content = f"警告：組合雖然看似具備結構，但實質上**極度向科技成長股傾斜**。這是一個典型的『進可攻、退可守』之反面案例。標的如 **{top_stock}** 與衛星標的相關性過高，一旦科技產業修正，資產將同步重挫。"
             elif has_redundancy:
                 eval_title = "結構冗餘：標的重疊風險"
                 eval_color = "#fbbf24"
-                eval_content = "偵測到同時持有 QQQ 與 QQQM。這兩者追蹤同一指數，屬於冗餘配置，並未達到分散風險的效果。建議合併標的並引入其他產業（如金融、能源）以達成真正的『退可守』。"
+                eval_content = f"偵測到同時持有 QQQ 與 QQQM。這兩者追蹤同一指數，屬於冗餘配置，並未達到分散風險效果。建議以 **{top_stock}** 為主並引入其他非科技產業達成真正防禦。"
             elif 0.9 <= weighted_beta <= 1.25 and tech_ratio < 0.6:
-                eval_title = "精英級：均衡核心—衛星策略"
+                eval_title = "精英級：均衡核心—衛星配置"
                 eval_color = "#60a5fa"
-                eval_content = f"配置展現了卓越的專業度。以 **{top_stock}** 為核心定海神針，並成功透過不同屬性的標的分散風險，是名副其實的『進可攻、退可守』配置。"
+                eval_content = f"配置展現了極高的專業度。以 **{top_stock}** 為核心定海神針，並透過不同產業屬性的衛星標的分散風險，是名副其實的『進可攻、退可守』。"
             else:
-                eval_title = "穩健/防禦型資產配置"
+                eval_title = "穩健/防禦型配置"
                 eval_color = "#4ade80"
-                eval_content = f"組合抗風險能力強。以 **{top_stock}** 為主軸，能在市場動盪中提供出色的保護力，但在大牛市中增長幅度可能較慢。"
+                eval_content = f"組合抗風險能力強。以 **{top_stock}** 等穩健標的為主軸，能在市場動盪中提供出色的保護力。"
 
             st.markdown(f"""
                 <div class="report-card" style="border-left: 10px solid {eval_color}; background-color: #1e293b;">
                     <h2 style="color: {eval_color}; margin:0;">AI 診斷：{eval_title}</h2>
                     <p style="margin-top:20px; font-size:18px; line-height:1.7; color: white !important;">
-                        <b>分析師實話：</b><br>{eval_content}<br><br>
+                        <b>首席分析師診斷：</b><br>{eval_content}<br><br>
                         <b>組合加權 Beta：</b>{weighted_beta:.2f} (風險敏感度)<br>
-                        <b>資產多樣性檢查：</b>{'偏低，標的過於雷同' if tech_ratio > 0.7 else '良好，產業分布健康'}<br>
-                        <b>核心資產引擎：</b>{top_stock}
+                        <b>組合平均 RSI：</b>{weighted_rsi:.1f} ({'短期情緒過熱' if weighted_rsi > 70 else '情緒健康'})<br>
+                        <b>主要資產引擎：</b>{top_stock}
                     </p>
                 </div>
             """, unsafe_allow_html=True)
             
-            c_pie, c_bar = st.columns(2)
-            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="資產權重配置", template="plotly_dark"), use_container_width=True)
-            c_bar.plotly_chart(px.bar(res_df, x='股票', y='驅動力', title="波動驅動力分析 (Weight × Beta)", template="plotly_dark").update_traces(marker_color='#60a5fa'), use_container_width=True)
+            ca, cb = st.columns(2)
+            ca.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="資產權重配置", template="plotly_dark"), use_container_width=True)
+            cb.plotly_chart(px.bar(res_df, x='股票', y='驅動力', title="波動驅動力分析 (Weight × Beta)", template="plotly_dark").update_traces(marker_color='#60a5fa'), use_container_width=True)
 
 with tab3:
-    st.header("📖 理論基礎與公式")
+    st.header("📖 模型理論基礎")
     st.markdown("""
-    1. **多項式擬合預測**：採用二階多項式擬合 $y = ax^2 + bx + c$，捕捉短期趨勢。
-    2. **馬可維茲組合風險**：加權 Beta $\\beta_{p} = \\sum w_i \\beta_i$ 用於量化系統性風險。
-    3. **產業相關性偵測**：AI 會掃描標的屬性（如 Tech Concentration），評估實際的分散效果。
+    1. **多項式趨勢擬合**：採用二階多項式擬合 $y = ax^2 + bx + c$，捕捉股價短期轉折動能。
+    2. **馬可維茲 Beta 模型**：加權 Beta $\\beta_{p} = \\sum w_i \\beta_i$ 用於量化整體組合的市場敏感度。
+    3. **標的重疊偵測**：AI 會檢查是否存在追蹤同指數的冗餘標的（如 QQQ/QQQM），評估真實的分散效果。
     """)
