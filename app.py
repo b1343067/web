@@ -6,10 +6,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures # 導入多項式引擎
+from sklearn.preprocessing import PolynomialFeatures
 
 # ==========================================
-# 1. 核心數據處理 (AI 曲線引擎)
+# 1. 核心數據處理引擎
 # ==========================================
 
 @st.cache_data(ttl=3600)
@@ -36,14 +36,12 @@ def calculate_indicators(df):
     return df
 
 def get_ai_prediction_model(df, days=7):
-    """進化版：多項式回歸，讓預測線會轉彎"""
-    df_p = df.tail(90).reset_index() # 取最近三個月動能
+    """多項式回歸趨勢預測"""
+    df_p = df.tail(90).reset_index()
     df_p['Date_n'] = pd.to_datetime(df_p['Date']).apply(lambda x: x.toordinal())
-    
     X = df_p[['Date_n']].values
     y = df_p['Close'].values
     
-    # 建立 2 次多項式 (Degree 2)，讓線條有弧度
     poly = PolynomialFeatures(degree=2)
     X_poly = poly.fit_transform(X)
     model = LinearRegression().fit(X_poly, y)
@@ -52,7 +50,6 @@ def get_ai_prediction_model(df, days=7):
     future_n = np.array([last_d_n + i for i in range(1, days + 1)]).reshape(-1, 1)
     future_preds = model.predict(poly.transform(future_n))
     
-    # 動態信心區間：時間越長，陰影越寬
     base_std = df['Close'].tail(20).std()
     intervals = [base_std * (1 + (i * 0.2)) for i in range(len(future_preds))]
     
@@ -61,33 +58,49 @@ def get_ai_prediction_model(df, days=7):
     return future_d, future_preds, intervals
 
 # ==========================================
-# 2. UI 視覺旗艦設計
+# 2. UI 視覺設計與樣式優化
 # ==========================================
 
-st.set_page_config(page_title="AlphaCheck Elite 21.0", layout="wide")
+st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
 st.markdown("""
     <style>
+    /* 全局背景色 */
     .stApp, [data-testid="stSidebar"] { background-color: #0f172a !important; }
     h1, h2, h3, p, span, label, .stMarkdown { color: #f1f5f9 !important; }
     
-    /* 指標標籤強化 */
-    [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 15px !important; }
-    [data-testid="stMetricValue"] { color: #60a5fa !important; font-weight: bold !important; }
+    /* 側邊欄資訊框修復 */
+    .stAlert { background-color: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; }
+    [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
+    [data-testid="stMetricValue"] { color: #60a5fa !important; }
+
+    /* 按鍵美化：發光邊框質感 */
+    .stButton>button {
+        background-color: transparent !important;
+        color: #60a5fa !important;
+        border: 2px solid #60a5fa !important;
+        border-radius: 20px !important;
+        padding: 8px 30px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease-in-out !important;
+        width: 100% !important;
+    }
+    .stButton>button:hover {
+        background-color: #60a5fa !important;
+        color: #ffffff !important;
+        box-shadow: 0 0 15px rgba(96, 165, 250, 0.4) !important;
+        border-color: #60a5fa !important;
+    }
 
     /* 決策盒：毛玻璃效果 */
     .decision-card {
-        padding: 25px; border-radius: 12px; margin-bottom: 20px;
+        padding: 25px; border-radius: 12px; margin-bottom: 25px;
         border: 1px solid; backdrop-filter: blur(10px); color: white !important;
     }
-    
-    /* 側邊欄提示框顏色修正 */
-    .stAlert { background-color: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
-st.caption(f"數位金融科技系專案 | 版本 21.0 (AI 曲線優化) | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -101,24 +114,24 @@ with st.sidebar:
         fig_side.update_layout(height=120, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True)
     st.divider()
-    st.info("💡 系統已升級多項式回歸模型，具備動態趨勢預測能力。")
+    st.info("💡 數據已實作同步快取與 AI 曲線擬合。")
 
-tab1, tab2, tab3 = st.tabs(["🎯 AI 深度診斷", "🛡️ 投資組合風險", "📖 模型理論說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 深度分析", "🛡️ 投資組合風險", "📖 模型說明"])
 
 # --- Tab 1: AI 診斷 ---
 with tab1:
     col_in, _ = st.columns([2, 2])
-    raw_ticker = col_in.text_input("輸入美股代號 (如 BRK/B)", "NVDA")
+    raw_ticker = col_in.text_input("輸入美股代號", "NVDA")
     
     if raw_ticker:
         target = raw_ticker.upper().replace("/", "-").strip()
-        with st.spinner('AI 正在擬合曲線趨勢...'):
+        with st.spinner('正在計算市場趨勢...'):
             hist, info, err = fetch_financial_data(target)
             if not err:
                 hist = calculate_indicators(hist)
                 f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
                 
-                # A. 決策盒 (莫蘭迪色系)
+                # 決策盒邏輯
                 cur_p = hist['Close'].iloc[-1]
                 target_p = f_preds[-1]
                 expected_ret = ((target_p - cur_p) / cur_p) * 100
@@ -134,45 +147,42 @@ with tab1:
                     </div>
                 """, unsafe_allow_html=True)
 
-                # B. 圖表 (修正標註顏色與線條)
+                # 圖表渲染
                 plot_data = hist.tail(120)
                 fig = go.Figure()
-                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
+                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史價格', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
                 
-                # 均線系統
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA'))
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#64748b', width=2), name='200MA'))
                 
-                # AI 預測陰影 (信心區間隨時間擴大)
+                # AI 曲線預測
                 fig.add_trace(go.Scatter(
                     x=f_dates + f_dates[::-1],
                     y=[f_preds[i] + f_intervals[i] for i in range(len(f_preds))] + [f_preds[i] - f_intervals[i] for i in range(len(f_preds))][::-1],
-                    fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動區間'
+                    fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預估'
                 ))
-                # AI 預測路徑 (曲線)
                 fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#60a5fa', dash='dot', width=3), name='AI 預測路徑'))
                 
                 fig.update_layout(
                     template="plotly_dark", height=550, xaxis_rangeslider_visible=False,
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                    # 強制修改圖例文字為白色，避免黑色看不見
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#f1f5f9"))
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                # C. 指標
+                # 指標卡片
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("即時股價", f"${cur_p:.2f}")
-                c2.metric("RSI (14D)", f"{hist['RSI'].iloc[-1]:.1f}")
+                c2.metric("RSI 指標", f"{hist['RSI'].iloc[-1]:.1f}")
                 c3.metric("預估 P/E", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2: 組合風險 (視覺一致化) ---
+# --- Tab 2: 投資組合 ---
 with tab2:
     st.markdown("### 🛡️ 投資組合風險量化測試")
     p_df = pd.DataFrame([{"代號": "NVDA", "金額": 5000}, {"代號": "VOO", "金額": 5000}])
     edited = st.data_editor(p_df, num_rows="dynamic", key="final_p_edit", use_container_width=True)
-    if st.button("🚀 開始評估"):
+    if st.button("🚀 開始量化分析"):
         total = edited["金額"].sum()
         w_beta = 0
         p_list = []
@@ -192,9 +202,12 @@ with tab2:
             st.markdown(f"<div style='background-color: #1e293b; padding: 25px; border-radius: 12px; border: 1px solid #334155;'>"
                         f"<h4 style='margin:0; opacity: 0.8;'>總體風險等級</h4><h1 style='color: #60a5fa;'>{risk_lv}</h1></div>", unsafe_allow_html=True)
 
+# --- Tab 3: 理論說明 ---
 with tab3:
     st.header("📖 模型理論基礎")
     st.markdown("""
-    1. **多項式回歸 (Polynomial Regression)**：相較於傳統線性回歸，本系統導入二次項（$x^2$）擬合，能捕捉股價的弧度與轉折。
-    2. **信心錐 (Confidence Cone)**：預測區間隨時間增加而擴張，符合統計學上的異方差性（Heteroscedasticity）原理。
+    1. **多項式回歸 (Polynomial Regression)**：採用非線性擬合捕捉股價轉折與斜率。
+    2. **動態信心區間**：
+    $$Prediction \\pm \\sigma_{volatility} \\times (1 + \\Delta t)$$
+    預測陰影隨時間擴張，符合金融市場不確定性原理。
     """)
