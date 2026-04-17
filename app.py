@@ -13,21 +13,26 @@ from datetime import datetime
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
     """
-    從 Yahoo Finance 抓取數據並進行預處理
+    從 Yahoo Finance 抓取數據並進行預處理，加入異常處理機制
     """
     try:
         ticker = yf.Ticker(ticker_name)
         history = ticker.history(period="1y")
-        info = ticker.info
+        # 抓取 info 時改為更保守的寫法，防止被限流時程式崩潰
+        try:
+            info = ticker.info
+        except:
+            info = {}
+        
         if history.empty:
-            return None, None, "無此標的數據"
+            return None, None, None, "無此標的數據"
         return ticker, history, info, None
     except Exception as e:
         return None, None, None, str(e)
 
-def calculate_technical_indicators(df):
+def calculate_indicators(df):
     """
-    計算進階技術指標：RSI, MACD, 波動率
+    手寫計算技術指標：RSI、移動平均線
     """
     # 計算 RSI
     delta = df['Close'].diff()
@@ -35,116 +40,141 @@ def calculate_technical_indicators(df):
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
-
-    # 計算 MACD
-    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = exp1 - exp2
-    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     
-    # 計算 20日年化波動率
-    df['Log_Ret'] = np.log(df['Close'] / df['Close'].shift(1))
-    df['Volatility'] = df['Log_Ret'].rolling(window=20).std() * np.sqrt(252)
+    # 計算均線
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+    df['MA200'] = df['Close'].rolling(window=200).mean()
     
     return df
 
 # ==========================================
-# 2. 介面與排版設計 (UI Layout)
+# 2. 網頁介面佈局 (UI Layout)
 # ==========================================
 
 st.set_page_config(page_title="AlphaCheck Elite | 數位金融終端", layout="wide")
 
-# 自定義 CSS 讓介面更帥
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
-
+# 增加專業感
 st.title("🏛️ AlphaCheck Elite: 智慧型金融決策終端")
-st.sidebar.title("📊 市場監控中心")
+st.caption(f"數據最後更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# --- 側邊欄：美債與市場背景 ---
+# --- 側邊欄：全球市場監控 ---
+st.sidebar.title("📊 市場監控中心")
 with st.sidebar:
-    st.subheader("美債 10Y 殖利率")
+    st.subheader("美債 10Y 殖利率 (^TNX)")
     _, tnx_h, _, _ = fetch_financial_data("^TNX")
     if tnx_h is not None:
         cur_y = tnx_h['Close'].iloc[-1]
         st.metric("目前水準", f"{cur_y:.2f}%", delta=f"{cur_y - tnx_h['Close'].iloc[-2]:.2f}%")
-        st.line_chart(tnx_h['Close'].tail(30))
+        st.line_chart(tnx_h['Close'].tail(60))
     st.divider()
-    st.info("💡 提示：本系統採用快取技術，每小時自動更新數據。")
+    st.info("💡 系統已實作資料快取與限流保護。")
 
 # --- 主功能區：分頁系統 ---
 tab1, tab2, tab3 = st.tabs(["🔍 深度個股掃描", "🛡️ 投資組合風險", "📖 系統分析邏輯"])
 
+# --- Tab 1: 個股診斷 ---
 with tab1:
-    col_input, col_status = st.columns([2, 1])
-    target = col_input.text_input("請輸入美股代號", "NVDA").upper()
+    col_in, _ = st.columns([2, 2])
+    target = col_in.text_input("請輸入美股代號 (如: VOO, NVDA, TSLA)", "NVDA").upper()
     
     if target:
-        with st.spinner('AI 引擎運算中...'):
+        with st.spinner(f'正在分析 {target}...'):
             obj, hist, info, err = fetch_financial_data(target)
             
             if err:
-                st.error(f"連線異常: {err}")
+                st.error(f"目前 API 連線受限 (Rate Limit)，請幾分鐘後再試。")
             else:
-                hist = calculate_technical_indicators(hist)
+                hist = calculate_indicators(hist)
                 
-                # A. 視覺化圖表
+                # A. K線圖與均線
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(x=hist.index, open=hist['Open'], high=hist['High'],
-                                            low=hist['Low'], close=hist['Close'], name='K線圖'))
-                fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'].rolling(200).mean(), 
-                                        line=dict(color='orange', width=2), name='200MA'))
-                fig.update_layout(title=f"{target} 歷史走勢與長線支撐", template="plotly_dark", height=500)
+                                            low=hist['Low'], close=hist['Close'], name='K線'))
+                fig.add_trace(go.Scatter(x=hist.index, y=hist['MA200'], line=dict(color='orange'), name='200MA'))
+                fig.update_layout(title=f"{target} 歷史趨勢與支撐分析", template="plotly_dark", height=500)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # B. 指標儀表板
+                # B. 重要數據儀表板
                 c1, c2, c3, c4 = st.columns(4)
                 rsi_val = hist['RSI'].iloc[-1]
-                vol_val = hist['Volatility'].iloc[-1]
+                cur_p = hist['Close'].iloc[-1]
+                ma200_v = hist['MA200'].iloc[-1]
                 
-                c1.metric("目前股價", f"${hist['Close'].iloc[-1]:.2f}")
-                c2.metric("RSI (14D)", f"{rsi_val:.1f}", delta="-超買" if rsi_val > 70 else "+超跌" if rsi_val < 30 else "正常")
-                c3.metric("年化波動率", f"{vol_val:.1%}")
-                c4.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
+                c1.metric("目前股價", f"${cur_p:.2f}")
+                c2.metric("RSI (14D)", f"{rsi_val:.1f}")
+                c3.metric("本益比 (PE)", info.get('forwardPE', 'N/A'))
+                c4.metric("Beta 值", info.get('beta', 'N/A'))
 
-                # C. 綜合評分邏輯 (更複雜的算法)
+                # C. 修正後的打分邏輯 (解決之前的語法錯誤)
                 st.subheader("🎯 智能投資點評")
                 score = 0
-                if hist['Close'].iloc[-1] > ma200 := hist['Close'].rolling(200).mean().iloc[-1]: score += 40
-                if 30 <= rsi_val <= 60: score += 20
-                if info.get('beta', 1) < 1.5: score += 20
-                if info.get('recommendationKey') == 'buy': score += 20
-                
-                score_color = "green" if score >= 75 else "orange" if score >= 50 else "red"
-                st.markdown(f"### 系統綜合評分：<span style='color:{score_color}'>{score} 分</span>", unsafe_allow_html=True)
+                reasons = []
 
+                if cur_p > ma200_v:
+                    score += 40
+                    reasons.append("✅ 股價站穩 200 日長線均線，趨勢偏多。")
+                
+                if 30 <= rsi_val <= 65:
+                    score += 20
+                    reasons.append("✅ RSI 處於健康區間，未過熱。")
+                elif rsi_val < 30:
+                    score += 25
+                    reasons.append("💎 RSI 顯示超跌，可能具備反彈機會。")
+
+                if (info.get('forwardPE', 100) < 50) or (info.get('quoteType') == 'ETF'):
+                    score += 20
+                    reasons.append("✅ 估值尚屬合理或為指數型工具。")
+
+                if info.get('recommendationKey') == 'buy':
+                    score += 20
+                    reasons.append("✅ 華爾街分析師給予買入評級。")
+
+                # 顯示分數
+                s_color = "green" if score >= 75 else "orange" if score >= 50 else "red"
+                st.markdown(f"### 系統綜合評分：<span style='color:{s_color}'>{score} 分</span>", unsafe_allow_html=True)
+                for r in reasons: st.write(r)
+
+# --- Tab 2: 投資組合 ---
 with tab2:
     st.header("🛡️ 組合風險量化分析")
-    portfolio_data = pd.DataFrame([{"代號": "NVDA", "金額": 5000}, {"代號": "VOO", "金額": 5000}])
-    edited = st.data_editor(portfolio_data, num_rows="dynamic")
+    portfolio_df = pd.DataFrame([{"代號": "NVDA", "金額": 5000}, {"代號": "VOO", "金額": 5000}])
+    edited = st.data_editor(portfolio_df, num_rows="dynamic", key="portfolio_edit")
     
-    if st.button("運行風險壓力測試"):
-        total = edited["金額"].sum()
-        p_beta = 0
+    if st.button("運行風險測試"):
+        total_amt = edited["金額"].sum()
+        weighted_beta = 0
+        p_list = []
+        
         for _, row in edited.iterrows():
             _, _, i, _ = fetch_financial_data(row["代號"])
-            if i: p_beta += (i.get('beta', 1.0) * (row["金額"] / total))
+            if i:
+                b = i.get('beta', 1.0)
+                w = row["金額"] / total_amt
+                weighted_beta += b * w
+                p_list.append({"股票": row["代號"], "權重": w})
         
-        st.metric("組合加權 Beta (相對於 S&P 500)", f"{p_beta:.2f}")
-        st.progress(min(p_beta/2.0, 1.0), text=f"風險暴露程度：{p_beta:.2f}")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.plotly_chart(px.pie(p_list, values='權重', names='股票', hole=0.4, title="資產比例"))
+        with col_p2:
+            st.metric("組合加權 Beta 值", f"{weighted_beta:.2f}")
+            risk_desc = "大 (積極型)" if weighted_beta > 1.3 else "中 (穩健型)" if weighted_beta >= 0.9 else "小 (防禦型)"
+            st.write(f"### 總體風險等級：**{risk_desc}**")
 
+# --- Tab 3: 理論說明 ---
 with tab3:
-    st.header("📖 系統數學模型說明")
-    st.markdown(f"""
-    本系統基於以下金融數學模型進行開發：
+    st.header("📖 系統數學模型與邏輯說明")
+    st.markdown("""
+    本系統結合技術指標分析與馬可維茲資產定價概念：
+    
     1. **相對強弱指標 (RSI)**：
-       $RSI = 100 - \\frac{{100}}{{1 + RS}}$，其中 $RS = \\frac{{平均上漲幅度}}{{平均下跌幅度}}$。
-    2. **組合風險 (Beta)**：
-       $\\beta_p = \\sum w_i \\beta_i$，用於衡量組合對於大盤波動的敏感度。
-    3. **技術面權重算法**：
-       結合長線趨勢 (200MA)、情緒指標 (RSI) 與基本面 (P/E) 進行多因子評分。
+    $$RSI = 100 - \\frac{100}{1 + RS}$$
+    用於衡量市場超買或超賣的情況。
+    
+    2. **投資組合風險 (Weighted Beta)**：
+    $$\\beta_p = \\sum_{i=1}^{n} w_i \\beta_i$$
+    代表您的組合相對於標普 500 指數的波動敏感度。
+    
+    3. **長線過濾**：
+    採用 200 日移動平均線 (200MA) 作為牛熊分界線，確保投資者站在趨勢的一方。
     """)
