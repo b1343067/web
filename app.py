@@ -15,7 +15,8 @@ from sklearn.preprocessing import PolynomialFeatures
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
     try:
-        clean_ticker = ticker_name.upper().replace("/", "-").strip()
+        # 自動修正代號，支援 BRK.B 或 BRK/B 轉成 BRK-B
+        clean_ticker = ticker_name.upper().replace("/", "-").replace(".", "-").strip()
         ticker_obj = yf.Ticker(clean_ticker)
         history = ticker_obj.history(period="2y")
         info = ticker_obj.info if hasattr(ticker_obj, 'info') else {}
@@ -52,21 +53,20 @@ def get_ai_prediction_model(df, days=7):
     future_d = [last_d + timedelta(days=i) for i in range(1, days + 1)]
     return future_d, preds, intervals
 
-# 計算最大回撤 (MDD)
 def calculate_mdd(cumulative_returns):
     roll_max = cumulative_returns.cummax()
     drawdown = (cumulative_returns - roll_max) / roll_max
     return drawdown.min()
 
 # ==========================================
-# 2. UI 視覺設計 (完美相容 config.toml)
+# 2. UI 視覺設計 (移除衝突 CSS，回歸純淨)
 # ==========================================
 
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
 st.markdown("""
     <style>
-    h1, h2, h3, p, label { color: #f1f5f9 !important; }
+    /* 只保留必要的 Metrics 和按鈕美化，拔除會蓋掉紅綠色的 p 標籤強制白色 */
     [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 15px !important; }
     [data-testid="stMetricValue"] { color: #f8fafc !important; font-weight: bold !important; }
 
@@ -107,9 +107,9 @@ with st.sidebar:
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
     st.info("💡 系統已啟用: 即時 MTM 損益 / CAPM 評價 / 熱力圖 / AI 處方。")
 
-tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與診斷", "📖 模型說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合即時績效與診斷", "📖 模型說明"])
 
-# --- Tab 1: AI 診斷 (保持不變) ---
+# --- Tab 1: AI 診斷 ---
 with tab1:
     col_in, _ = st.columns([2, 2])
     raw_ticker = col_in.text_input("輸入美股代號 (如 BRK/B, VOO, NVDA)", "VOO")
@@ -147,28 +147,37 @@ with tab1:
                 c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2: 究極完全體 (損益 + CAPM + 熱力圖 + MDD + AI處方) ---
+# --- Tab 2: 實盤投資組合分析 (完美解鎖紅綠配色) ---
 with tab2:
     def color_pnl_cells(val):
         color = '#4ade80' if val >= 0 else '#f87171'
         return f'color: {color} !important; font-weight: bold;'
 
     st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
+    
+    # 這裡換上你截圖裡的超真實配置
     p_df = pd.DataFrame([
-        {"代號": "VOO",  "持有股數": 20, "平均成本": 450.0},
-        {"代號": "QQQM", "持有股數": 20, "平均成本": 170.0},
-        {"代號": "NVDA", "持有股數": 15, "平均成本": 115.0}
+        {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
+        {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
+        {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
+        {"代號": "GOOGL", "持有股數": 3,  "平均成本": 329.00},
+        {"代號": "JPM",   "持有股數": 3,  "平均成本": 308.00},
+        {"代號": "NMR",   "持有股數": 30, "平均成本": 9.49},
+        {"代號": "NVDA",  "持有股數": 5,  "平均成本": 182.94},
+        {"代號": "PLTR",  "持有股數": 6,  "平均成本": 156.74},
+        {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.15}
     ])
+    
     edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 即時結算與 AI 量化診斷"):
         with st.spinner('AI 正在計算即時損益、生成相關性矩陣與最大回撤...'):
             assets_data = []
-            hist_dict = {} # 用來存儲歷史價格計算矩陣
+            hist_dict = {} 
             total_invested_cost = 0
             total_current_value = 0
             tech_count = 0
-            tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX']
+            tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI']
 
             for _, row in edited.iterrows():
                 ticker = row["代號"].upper()
@@ -186,13 +195,14 @@ with tab2:
                     
                     total_invested_cost += asset_cost
                     total_current_value += asset_val
-                    if ticker in tech_tickers: tech_count += 1
+                    if ticker in tech_tickers or ticker.replace(".", "-") in tech_tickers: 
+                        tech_count += 1
                         
                     assets_data.append({
                         "股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, 
                         "未實現損益": pnl, "報酬率(%)": pnl_pct, "Beta": i.get('beta', 1.0), "RSI": h['RSI'].iloc[-1]
                     })
-                    hist_dict[ticker] = h['Close'] # 存入字典供後續矩陣計算
+                    hist_dict[ticker] = h['Close']
 
             res_df = pd.DataFrame(assets_data)
             
@@ -205,8 +215,21 @@ with tab2:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
             m2.metric("目前總市值", f"${total_current_value:,.2f}")
-            m3.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>未實現總損益</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>${total_pnl:+,.2f}</span></div>", unsafe_allow_html=True)
-            m4.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>總體報酬率</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>{total_pnl_pct:+.2f}%</span></div>", unsafe_allow_html=True)
+            
+            # 避開 Streamlit 自動包裹 <p> 導致的白字問題，改用最乾淨的 HTML 結構
+            m3.markdown(f"""
+                <div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;">
+                    <div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">未實現總損益</div>
+                    <div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${total_pnl:+,.2f}</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            m4.markdown(f"""
+                <div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;">
+                    <div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">總體報酬率</div>
+                    <div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{total_pnl_pct:+.2f}%</div>
+                </div>
+            """, unsafe_allow_html=True)
             
             styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({
                 '即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'
@@ -220,9 +243,9 @@ with tab2:
             st.markdown(styled_table, unsafe_allow_html=True)
 
             # --- 進階計算：權重、相關性矩陣、最大回撤 (MDD)、CAPM ---
-            hist_df = pd.DataFrame(hist_dict).dropna() # 對齊歷史數據
-            ret_df = hist_df.pct_change().dropna() # 計算每日回報率
-            corr_matrix = ret_df.corr() # 產生相關性矩陣
+            hist_df = pd.DataFrame(hist_dict).dropna()
+            ret_df = hist_df.pct_change().dropna()
+            corr_matrix = ret_df.corr()
 
             weights = []
             weighted_beta, weighted_rsi, portfolio_return = 0, 0, 0
@@ -235,21 +258,17 @@ with tab2:
                 weighted_beta += row["Beta"] * weight
                 weighted_rsi += row["RSI"] * weight
                 
-                # 計算個股年化報酬率供 CAPM 使用
                 ann_ret = hist_df[row['股票']].pct_change(252).iloc[-1]
                 portfolio_return += ann_ret * weight
 
-            # 計算組合歷史曲線與最大回撤 (MDD)
             port_daily_returns = ret_df.dot(weights)
             cumulative_returns = (1 + port_daily_returns).cumprod()
             port_mdd = calculate_mdd(cumulative_returns)
-            
-            # 計算 CAPM 指標
             jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
             st.divider()
 
-            # --- AI 智能診斷與開處方 (Rebalancing) ---
+            # --- AI 智能診斷與開處方 ---
             top_stock = res_df.sort_values('權重', ascending=False)['股票'].iloc[0]
             tech_ratio = tech_count / len(res_df) if len(res_df) > 0 else 0
             has_redundancy = "QQQ" in res_df['股票'].values and "QQQM" in res_df['股票'].values
@@ -258,12 +277,12 @@ with tab2:
                 eval_title = "高風險：極端成長型集中"
                 eval_color = "#f87171"
                 eval_content = f"組合極度向科技股傾斜。受 **{top_stock}** 等標的影響，在極端市況下抗跌能力極弱。"
-                prescription = f"建議減碼 {top_stock} 等科技標的 15-20%，並將資金轉入低相關性避險資產（如 TLT 美債、BRK-B），以有效降低目前達 {abs(port_mdd*100):.1f}% 的最大回撤風險。"
+                prescription = f"建議減碼部分高估值科技股，並將資金轉入低相關性避險資產（如 TLT 美債、大宗商品），以有效降低目前達 {abs(port_mdd*100):.1f}% 的最大回撤風險。"
             elif has_redundancy:
                 eval_title = "結構冗餘：標的重疊風險"
                 eval_color = "#fbbf24"
                 eval_content = "偵測到同時持有 QQQ 與 QQQM，兩者追蹤同一指數，屬於無效的分散風險配置。"
-                prescription = "建議將 QQQ 完全轉換為 QQQM（內扣費用較低），釋出的資金部位佈局非科技板塊（如 XLV 醫療、XLP 必需消費）來達到真正的『退可守』。"
+                prescription = "建議將 QQQ 完全轉換為 QQQM（內扣費用較低），釋出的資金部位佈局非科技板塊（如 XLV 醫療、XLP 必需消費）來達到真正的防禦。"
             elif 0.9 <= weighted_beta <= 1.25 and tech_ratio < 0.6:
                 eval_title = "精英級：均衡核心—衛星配置"
                 eval_color = "#60a5fa"
@@ -291,13 +310,9 @@ with tab2:
                 </div>
             """, unsafe_allow_html=True)
             
-            # --- 視覺大招：熱力圖與配置圖 ---
             c_pie, c_heat = st.columns(2)
-            
-            # 圓餅圖
             c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
             
-            # 熱力圖 (Correlation Heatmap)
             fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="資產相關性熱力圖 (Correlation Matrix)")
             fig_heat.update_layout(template="plotly_dark", font=dict(color="white"))
             c_heat.plotly_chart(fig_heat, use_container_width=True)
