@@ -63,14 +63,11 @@ st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
 st.markdown("""
     <style>
-    /* 修正全域字體顏色，但不蓋過我們自訂的紅綠色 */
     h1, h2, h3, p, label { color: #f1f5f9 !important; }
     
-    /* Metrics 基本標籤 */
     [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 15px !important; }
     [data-testid="stMetricValue"] { color: #f8fafc !important; font-weight: bold !important; }
 
-    /* 按鈕：極簡發光線條 */
     .stButton>button {
         background-color: transparent !important; color: #60a5fa !important;
         border: 2px solid #60a5fa !important; border-radius: 25px !important;
@@ -82,8 +79,10 @@ st.markdown("""
         box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important; color: #ffffff !important;
     }
 
-    /* 專業決策卡片 */
     .report-card { padding: 30px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #334155; backdrop-filter: blur(10px); }
+    
+    /* 隱藏 Data Editor 預設的醜外框 */
+    [data-testid="stDataEditor"] { border: none !important; background-color: transparent !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -143,18 +142,26 @@ with tab1:
 
 # --- Tab 2: 華麗版即時損益與診斷 ---
 with tab2:
-    # HTML 表格專用的顏色編碼器
     def color_pnl_cells(val):
         color = '#4ade80' if val >= 0 else '#f87171'
         return f'color: {color} !important; font-weight: bold;'
 
     st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
+    
     p_df = pd.DataFrame([
         {"代號": "VOO",  "持有股數": 20, "平均成本": 450.0},
         {"代號": "QQQM", "持有股數": 20, "平均成本": 170.0},
         {"代號": "NVDA", "持有股數": 15, "平均成本": 115.0}
     ])
-    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True)
+    
+    # 🌟 魔法在這裡：利用 Pandas Styler 強制把輸入表格染成午夜藍
+    styled_input_df = p_df.style.set_properties(**{
+        'background-color': '#1e293b',
+        'color': '#f1f5f9',
+        'border-color': '#334155'
+    })
+    
+    edited = st.data_editor(styled_input_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 即時結算與 AI 績效診斷"):
         with st.spinner('正在抓取即時報價並計算損益...'):
@@ -194,20 +201,15 @@ with tab2:
             total_pnl_pct = (total_pnl / total_invested_cost)*100 if total_invested_cost > 0 else 0
             pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
 
-            # ==========================================
             # 視覺大招 1: 超大字體彩色儀表板
-            # ==========================================
             st.markdown(f"### 📈 即時損益儀表板 (Mark-to-Market)")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
             m2.metric("目前總市值", f"${total_current_value:,.2f}")
-            # 用 HTML 強制覆蓋，確保顏色極度鮮豔
             m3.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>未實現總損益</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>${total_pnl:+,.2f}</span></div>", unsafe_allow_html=True)
             m4.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>總體報酬率</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>{total_pnl_pct:+.2f}%</span></div>", unsafe_allow_html=True)
             
-            # ==========================================
             # 視覺大招 2: 終端機等級的高級 HTML 表格
-            # ==========================================
             styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({
                 '即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}',
                 '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'
@@ -265,7 +267,7 @@ with tab2:
             """, unsafe_allow_html=True)
             
             c_pie, c_bar = st.columns(2)
-            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark"), use_container_width=True)
+            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
             c_bar.plotly_chart(px.bar(res_df, x='股票', y='驅動力', title="個股波動驅動力分析 (Weight × Beta)", template="plotly_dark").update_traces(marker_color='#60a5fa'), use_container_width=True)
 
 with tab3:
