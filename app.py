@@ -56,22 +56,13 @@ def get_ai_prediction_model(df, days=7):
     return future_d, preds, intervals
 
 # ==========================================
-# 2. UI 視覺設計 (修復核彈級 CSS 衝突)
+# 2. UI 視覺設計 (精簡版，交由 config.toml 管理全局)
 # ==========================================
 
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp, [data-testid="stSidebar"] { background-color: #0f172a !important; }
-    
-    /* 拿掉 span 的強制白色，讓自訂顏色可以生效 */
-    h1, h2, h3, p, label { color: #f1f5f9 !important; }
-    
-    /* Metrics 樣式 */
-    [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 15px !important; }
-    [data-testid="stMetricValue"] { color: #f8fafc !important; font-weight: bold !important; }
-
     /* 按鈕：極簡發光線條感 */
     .stButton>button {
         background-color: transparent !important; color: #60a5fa !important;
@@ -83,10 +74,8 @@ st.markdown("""
         background-color: rgba(96, 165, 250, 0.1) !important;
         box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important; color: #ffffff !important;
     }
-
-    /* 專業報告卡片 */
+    /* 專業決策卡片 */
     .report-card { padding: 30px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #334155; backdrop-filter: blur(10px); }
-    div[data-testid="stDataEditor"] { border: 1px solid #334155 !important; border-radius: 10px; background-color: #1e293b !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,7 +91,7 @@ with st.sidebar:
         fig_side = px.line(spy_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
-    st.info("💡 系統已啟用即時 MTM 損益計算與個股波動分析。")
+    st.info("💡 系統已啟用即時 MTM 損益計算與 AI 多向度風險診斷。")
 
 tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合即時績效與診斷", "📖 模型說明"])
 
@@ -130,26 +119,25 @@ with tab1:
                 plot_data = hist.tail(150)
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'))
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA'))
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA'))
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA'))
                 fig.add_trace(go.Scatter(x=f_dates + f_dates[::-1], y=[f_preds[i] + f_intervals[i] for i in range(len(f_preds))] + [f_preds[i] - f_intervals[i] for i in range(len(f_preds))][::-1], fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預期'))
                 fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#ffffff', dash='dash', width=2), name='AI 核心路徑'))
-                fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#f1f5f9", size=12)))
+                fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig, use_container_width=True)
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("即時股價", f"${cur_p:.2f}")
-                c2.metric("RSI 指標 (14D)", f"{hist['RSI'].iloc[-1]:.1f}")
+                c2.metric("RSI (14D)", f"{hist['RSI'].iloc[-1]:.1f}")
                 c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
-                c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
+                c4.metric("市場 Beta", f"{info.get('beta', 'N/A')}")
 
 # --- Tab 2: 即時損益與診斷 ---
 with tab2:
-    # 專屬的 HTML 賺賠顏色編碼器
-    def color_pnl_cells(val):
-        color = '#4ade80' if val >= 0 else '#f87171'
-        return f'color: {color} !important; font-weight: bold;'
+    def color_pnl(val):
+        color = '#4ade80' if val > 0 else '#f87171' if val < 0 else 'white'
+        return f'color: {color}'
 
     st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
     p_df = pd.DataFrame([
@@ -157,7 +145,7 @@ with tab2:
         {"代號": "QQQM", "持有股數": 20, "平均成本": 170.0},
         {"代號": "NVDA", "持有股數": 15, "平均成本": 115.0}
     ])
-    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True, key="portfolio_editor")
+    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 即時結算與 AI 績效診斷"):
         with st.spinner('正在抓取即時報價並計算損益...'):
@@ -183,7 +171,6 @@ with tab2:
                     
                     total_invested_cost += asset_cost
                     total_current_value += asset_val
-                    
                     if ticker in tech_tickers: tech_count += 1
                         
                     assets_data.append({
@@ -192,35 +179,26 @@ with tab2:
                     })
 
             res_df = pd.DataFrame(assets_data)
-            
-            # 總損益計算
             total_pnl = total_current_value - total_invested_cost
             total_pnl_pct = (total_pnl / total_invested_cost)*100 if total_invested_cost > 0 else 0
-            pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
 
+            # 視覺區塊 1: 原生完美 Metric 儀表板
             st.markdown(f"### 📈 即時損益儀表板 (Mark-to-Market)")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
             m2.metric("目前總市值", f"${total_current_value:,.2f}")
-            # 強制加上 !important 把全局白色壓過去
-            m3.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>未實現總損益</span><br><span style='color: {pnl_color} !important; font-size: 30px; font-weight: bold;'>${total_pnl:+,.2f}</span></div>", unsafe_allow_html=True)
-            m4.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>總體報酬率</span><br><span style='color: {pnl_color} !important; font-size: 30px; font-weight: bold;'>{total_pnl_pct:+.2f}%</span></div>", unsafe_allow_html=True)
+            m3.metric("未實現總損益", f"${total_pnl:,.2f}", f"{total_pnl:,.2f}")
+            m4.metric("總體報酬率", f"{total_pnl_pct:.2f}%", f"{total_pnl_pct:.2f}%")
             
-            # --- 放棄醜陋原生表格，直接生成頂級暗黑 HTML 表格 ---
-            styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({
-                '即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}',
-                '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'
-            }).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([
-                {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('background-color', '#1e293b'), ('border-radius', '10px'), ('overflow', 'hidden'), ('margin-top', '20px'), ('margin-bottom', '20px')]},
-                {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8'), ('font-weight', 'bold'), ('padding', '15px'), ('text-align', 'center'), ('border', '1px solid #334155')]},
-                {'selector': 'td', 'props': [('color', '#f1f5f9'), ('padding', '12px'), ('text-align', 'center'), ('border', '1px solid #334155')]},
-                {'selector': 'tr:hover td', 'props': [('background-color', '#334155')]}
-            ]).hide(axis="index").to_html()
-            
-            # 渲染這個完美的 HTML 表格
-            st.markdown(styled_table, unsafe_allow_html=True)
+            # 視覺區塊 2: 原生深色表格 (含顏色格式化)
+            st.dataframe(
+                res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style
+                .format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'})
+                .map(color_pnl, subset=['未實現損益', '報酬率(%)']),
+                use_container_width=True, hide_index=True
+            )
 
-            # --- AI 診斷與權重計算 ---
+            # AI 診斷邏輯
             weighted_beta, weighted_rsi = 0, 0
             for idx, row in res_df.iterrows():
                 weight = row["目前市值"] / total_current_value if total_current_value > 0 else 0
@@ -238,11 +216,11 @@ with tab2:
             if tech_ratio > 0.8 and weighted_beta > 1.15:
                 eval_title = "高風險：極端成長型集中"
                 eval_color = "#f87171"
-                eval_content = f"警告：組合極度向科技成長股傾斜。這是一個『進可攻、退不可守』之反面案例。一旦科技產業修正，資產將同步重挫。"
+                eval_content = "警告：組合極度向科技成長股傾斜。這是一個『進可攻、退不可守』之反面案例。一旦科技產業修正，資產將同步重挫。"
             elif has_redundancy:
                 eval_title = "結構冗餘：標的重疊風險"
                 eval_color = "#fbbf24"
-                eval_content = f"偵測到同時持有 QQQ 與 QQQM，兩者追蹤同一指數，屬於冗餘配置，建議合併標的以提升真正防禦力。"
+                eval_content = "偵測到同時持有 QQQ 與 QQQM，兩者追蹤同一指數，屬於冗餘配置，建議合併標的以提升真正防禦力。"
             elif 0.9 <= weighted_beta <= 1.25 and tech_ratio < 0.6:
                 eval_title = "精英級：均衡核心—衛星配置"
                 eval_color = "#60a5fa"
@@ -255,7 +233,7 @@ with tab2:
             st.markdown(f"""
                 <div class="report-card" style="border-left: 10px solid {eval_color}; background-color: #1e293b;">
                     <h2 style="color: {eval_color}; margin:0;">AI 綜合診斷：{eval_title}</h2>
-                    <p style="margin-top:20px; font-size:18px; line-height:1.7; color: white !important;">
+                    <p style="margin-top:20px; font-size:18px; line-height:1.7;">
                         <b>分析師實話：</b><br>{eval_content}<br><br>
                         <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
                         <b>組合平均 RSI：</b>{weighted_rsi:.1f} ({'短期情緒過熱' if weighted_rsi > 70 else '情緒健康'})<br>
@@ -265,13 +243,13 @@ with tab2:
             """, unsafe_allow_html=True)
             
             c_pie, c_bar = st.columns(2)
-            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
+            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark"), use_container_width=True)
             c_bar.plotly_chart(px.bar(res_df, x='股票', y='驅動力', title="個股波動驅動力分析 (Weight × Beta)", template="plotly_dark").update_traces(marker_color='#60a5fa'), use_container_width=True)
 
 with tab3:
     st.header("📖 模型理論基礎")
     st.markdown("""
     1. **Mark-to-Market (按市值計價)**：放棄投入靜態金額，採用「當前真實市值」計算動態權重與系統性風險。
-    2. **馬可維茲 Beta 模型**：加權 Beta $\\beta_{p} = \\sum w_i \\beta_i$ 用於量化組合相對於標普 500 的市場風險係數。
-    3. **動態多向度風險偵測**：AI 自動判定標的重疊 (Redundancy) 與產業過度集中 (Concentration) 風險，評估真實的分散效果。
+    2. **馬可維茲 Beta 模型**：加權 Beta 用於量化組合相對於標普 500 的市場風險係數。
+    3. **動態多向度風險偵測**：AI 自動判定標的重疊與產業過度集中風險，評估真實的分散效果。
     """)
