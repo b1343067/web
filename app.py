@@ -56,11 +56,12 @@ def get_ai_prediction_model(df, days=7):
     return future_d, preds, intervals
 
 # ==========================================
-# 2. UI 視覺設計 (完美相容 config.toml 版)
+# 2. UI 視覺設計 (極簡無干擾版)
 # ==========================================
 
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
+# 拔除所有對輸入表格的強制 CSS 干擾，完全交給 config.toml
 st.markdown("""
     <style>
     h1, h2, h3, p, label { color: #f1f5f9 !important; }
@@ -80,9 +81,6 @@ st.markdown("""
     }
 
     .report-card { padding: 30px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #334155; backdrop-filter: blur(10px); }
-    
-    /* 隱藏 Data Editor 預設的醜外框 */
-    [data-testid="stDataEditor"] { border: none !important; background-color: transparent !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -98,7 +96,7 @@ with st.sidebar:
         fig_side = px.line(spy_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
-    st.info("💡 系統已啟用即時 MTM 損益計算與個股波動分析。")
+    st.info("💡 系統已啟用即時 MTM 損益計算與 AI 多向度風險診斷。")
 
 tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合即時績效與診斷", "📖 模型說明"])
 
@@ -140,7 +138,7 @@ with tab1:
                 c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2: 華麗版即時損益與診斷 ---
+# --- Tab 2: 即時損益與診斷 ---
 with tab2:
     def color_pnl_cells(val):
         color = '#4ade80' if val >= 0 else '#f87171'
@@ -154,14 +152,8 @@ with tab2:
         {"代號": "NVDA", "持有股數": 15, "平均成本": 115.0}
     ])
     
-    # 🌟 魔法在這裡：利用 Pandas Styler 強制把輸入表格染成午夜藍
-    styled_input_df = p_df.style.set_properties(**{
-        'background-color': '#1e293b',
-        'color': '#f1f5f9',
-        'border-color': '#334155'
-    })
-    
-    edited = st.data_editor(styled_input_df, num_rows="dynamic", use_container_width=True)
+    # 【還原純淨】不再用 Pandas 硬改顏色，讓 config.toml 原生的深藍色接管它！
+    edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 即時結算與 AI 績效診斷"):
         with st.spinner('正在抓取即時報價並計算損益...'):
@@ -201,7 +193,6 @@ with tab2:
             total_pnl_pct = (total_pnl / total_invested_cost)*100 if total_invested_cost > 0 else 0
             pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
 
-            # 視覺大招 1: 超大字體彩色儀表板
             st.markdown(f"### 📈 即時損益儀表板 (Mark-to-Market)")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
@@ -209,7 +200,6 @@ with tab2:
             m3.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>未實現總損益</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>${total_pnl:+,.2f}</span></div>", unsafe_allow_html=True)
             m4.markdown(f"<div style='padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>總體報酬率</span><br><span style='color: {pnl_color} !important; font-size: 32px; font-weight: bold;'>{total_pnl_pct:+.2f}%</span></div>", unsafe_allow_html=True)
             
-            # 視覺大招 2: 終端機等級的高級 HTML 表格
             styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({
                 '即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}',
                 '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'
@@ -222,7 +212,6 @@ with tab2:
             
             st.markdown(styled_table, unsafe_allow_html=True)
 
-            # --- AI 診斷與權重計算 ---
             weighted_beta, weighted_rsi = 0, 0
             for idx, row in res_df.iterrows():
                 weight = row["目前市值"] / total_current_value if total_current_value > 0 else 0
