@@ -77,13 +77,12 @@ st.markdown("""
     /* Metrics 樣式 */
     [data-testid="stMetricLabel"] { color: #94a3b8 !important; font-size: 15px !important; }
     [data-testid="stMetricValue"] { color: #f8fafc !important; font-weight: bold !important; }
-    [data-testid="stMetricDelta"] svg { display: none; } /* 隱藏原生的箭頭，我們自己處理顏色 */
 
-    /* 按鈕：發光線條 */
+    /* 按鈕：極簡發光線條感 */
     .stButton>button {
         background-color: transparent !important; color: #60a5fa !important;
         border: 2px solid #60a5fa !important; border-radius: 25px !important;
-        padding: 10px 40px !important; font-weight: 700 !important; width: 100% !important;
+        padding: 10px 40px !important; font-weight: 700 !important;
         transition: 0.3s all ease-in-out; text-transform: uppercase; letter-spacing: 1px;
     }
     .stButton>button:hover {
@@ -91,30 +90,25 @@ st.markdown("""
         box-shadow: 0 0 20px rgba(96, 165, 250, 0.3) !important; color: #ffffff !important;
     }
 
-    /* 專業報告卡片 */
-    .report-card {
-        padding: 30px; border-radius: 15px; margin-bottom: 25px;
-        border: 1px solid #334155; backdrop-filter: blur(10px);
-    }
-    div[data-testid="stDataEditor"] {
-        border: 1px solid #334155 !important; border-radius: 10px; background-color: #1e293b !important;
-    }
+    /* 專業決策卡片與表格封裝 */
+    .report-card { padding: 30px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #334155; backdrop-filter: blur(10px); }
+    
+    /* 專業表格視覺大進化 (午夜藍與邊框) */
+    div[data-testid="stDataFrameContainer"] { border-radius: 10px; border: 1px solid #334155; overflow: hidden; }
+    div[data-testid="stDataFrameContainer"] table { border-collapse: collapse; border-radius: 10px; overflow: hidden; }
+    div[data-testid="stDataFrameContainer"] th { background-color: #1a202c; color: #ffffff; font-weight: bold; text-align: center; border: 1px solid #334155; }
+    div[data-testid="stDataFrameContainer"] td { background-color: #1e293b; color: #f1f5f9; text-align: center; border: 1px solid #334155; }
+    div[data-testid="stDataFrameContainer"] tr:hover td { background-color: #2c3e50; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
+st.caption(f"數位金融科技系專案 | 即時數據更新: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# --- 側邊欄：市場動態 ---
+# --- 側邊欄：市場動態監控 ---
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
-    tnx_h, _, _ = fetch_financial_data("^TNX")
     spy_h, _, _ = fetch_financial_data("SPY")
-    rf_rate = 0.04
-    spy_ret = 0.10
-    
-    if tnx_h is not None:
-        rf_rate = tnx_h['Close'].iloc[-1] / 100
-        st.metric("美債 10Y (無風險利率 Rf)", f"{rf_rate*100:.2f}%")
     if spy_h is not None:
         spy_ret = spy_h['Close'].pct_change(252).iloc[-1]
         st.metric("S&P 500 年化報酬 (Rm)", f"{spy_ret*100:.2f}%")
@@ -124,23 +118,24 @@ with st.sidebar:
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
     st.divider()
-    st.info("💡 系統已啟用即時損益 Mark-to-Market 計算與 CAPM 績效診斷。")
+    st.info("💡 系統已啟用即時 Mark-to-Market 損益計算與個股波動驅動力分析模式。")
 
-tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合即時績效與診斷", "📖 模型理論說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合即時績效與診斷", "📖 模型說明"])
 
-# --- Tab 1: AI 診斷 (不變) ---
+# --- Tab 1: AI 診斷 (K線 + 三重均線 + AI 預測陰影) ---
 with tab1:
     col_in, _ = st.columns([2, 2])
     raw_ticker = col_in.text_input("輸入美股代號 (如 BRK/B, VOO, NVDA)", "VOO")
     
     if raw_ticker:
         target = raw_ticker.upper().replace("/", "-").strip()
-        with st.spinner('正在掃描市場趨勢...'):
+        with st.spinner('正在掃描市場技術指標...'):
             hist, info, err = fetch_financial_data(target)
             if not err:
                 hist = calculate_indicators(hist)
                 f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
                 
+                # A. AI 評級盒
                 cur_p = hist['Close'].iloc[-1]
                 target_p = f_preds[-1]
                 expected_ret = ((target_p - cur_p) / cur_p) * 100
@@ -149,6 +144,7 @@ with tab1:
 
                 st.markdown(f"<div class='report-card' style='background-color: {bg}; border-color: {border};'><h3 style='margin:0; color: white !important;'>🤖 AI 智能評級：{txt}</h3><p style='margin-top:10px; font-size:18px; color: white !important;'>預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b></p></div>", unsafe_allow_html=True)
 
+                # B. Plotly 圖表 (三重均線 + AI 信心陰影)
                 plot_data = hist.tail(150)
                 fig = go.Figure()
                 fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
@@ -166,19 +162,24 @@ with tab1:
                 c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2: 投資組合即時損益與 CAPM 診斷 ---
+# --- Tab 2: 投資組合即時績效與 CAPM 診斷 ---
 with tab2:
+    # 賺賠顏色編碼函數 (表格專用)
+    def color_pnl_cells(val):
+        color = '#4ade80' if val >= 0 else '#f87171'
+        return f'color: {color};'
+
     st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
     # 將輸入表單改為符合真實損益計算的格式
     p_df = pd.DataFrame([
+        {"代號": "VOO",  "持有股數": 20, "平均成本": 450.0},
         {"代號": "QQQM", "持有股數": 20, "平均成本": 170.0},
-        {"代號": "VOO",  "持有股數": 10, "平均成本": 450.0},
         {"代號": "NVDA", "持有股數": 15, "平均成本": 115.0}
     ])
     edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True, key="portfolio_editor")
     
     if st.button("🚀 即時結算與 AI 績效診斷"):
-        with st.spinner('正在抓取最新市場報價並計算損益...'):
+        with st.spinner('正在抓取即時市場報價並計算損益與風險係數...'):
             assets_data = []
             total_invested_cost = 0
             total_current_value = 0
@@ -215,7 +216,7 @@ with tab2:
             # 總體損益計算
             total_pnl = total_current_value - total_invested_cost
             total_pnl_pct = (total_pnl / total_invested_cost)*100 if total_invested_cost > 0 else 0
-            pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
+            pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171" # 損益為正，顯示綠色；損益為負，顯示紅色
 
             # -----------------------------------------------------
             # 視覺區塊 1: 損益儀表板 (Dashboard)
@@ -224,13 +225,21 @@ with tab2:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
             m2.metric("目前總市值", f"${total_current_value:,.2f}")
+            
+            # 自定義 Metrics 卡片，實現Intuitive顏色編碼
             m3.markdown(f"<div style='padding: 10px; border-radius: 8px; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>未實現總損益</span><br><span style='color: {pnl_color}; font-size: 28px; font-weight: bold;'>${total_pnl:+,.2f}</span></div>", unsafe_allow_html=True)
             m4.markdown(f"<div style='padding: 10px; border-radius: 8px; background-color: #1e293b; text-align: center;'><span style='color: #94a3b8; font-size: 14px;'>總體報酬率</span><br><span style='color: {pnl_color}; font-size: 28px; font-weight: bold;'>{total_pnl_pct:+.2f}%</span></div>", unsafe_allow_html=True)
             
-            st.dataframe(res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}), use_container_width=True, hide_index=True)
+            # 將表格風格化 (大進化：加入顏色編碼與邊框)
+            st.dataframe(
+                res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style
+                    .format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'})
+                    .map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']), # 詳細表格也加入賺綠賠紅的顏色編碼
+                use_container_width=True, hide_index=True
+            )
 
-            # 第二階段：計算真實市值的權重 (Weight)、Beta、CAPM
-            weighted_beta, weighted_rsi, portfolio_return = 0, 0, 0
+            # 第二階段：計算真實市值的權重 (Weight)、Beta
+            weighted_beta, weighted_rsi = 0, 0
             for idx, row in res_df.iterrows():
                 weight = row["目前市值"] / total_current_value if total_current_value > 0 else 0
                 res_df.at[idx, '權重'] = weight
@@ -238,17 +247,11 @@ with tab2:
                 
                 weighted_beta += row["Beta"] * weight
                 weighted_rsi += row["歷史數據"]['RSI'].iloc[-1] * weight
-                ann_ret = row["歷史數據"]['Close'].pct_change(252).iloc[-1]
-                portfolio_return += ann_ret * weight
-
-            # CAPM 指標
-            jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
-            treynor_ratio = (portfolio_return - rf_rate) / weighted_beta if weighted_beta != 0 else 0
 
             st.divider()
 
             # -----------------------------------------------------
-            # 視覺區塊 2: CAPM 與 AI 診斷 (抓蟲邏輯)
+            # 視覺區塊 2: CAPM 與 AI 風險偵測診斷 (保留菁英級抓蟲邏輯)
             # -----------------------------------------------------
             top_stock = res_df.sort_values('權重', ascending=False)['股票'].iloc[0]
             high_beta_stock = res_df.sort_values('Beta', ascending=False)['股票'].iloc[0]
@@ -258,30 +261,26 @@ with tab2:
             if tech_ratio > 0.8 and weighted_beta > 1.15:
                 eval_title = "高風險：極端成長型集中"
                 eval_color = "#f87171"
-                eval_content = f"警告：組合實質上**極度向科技成長股傾斜**。這是一個『進可攻、退不可守』之反面案例。一旦科技產業修正，資產將同步重挫。"
+                eval_content = f"警告：組合實質上**極度向科技成長股傾斜**。這是一個『進可攻、退不可守』之反面案例。標的如 **{high_beta_stock}** 與大盤核心相關性過高，一旦科技產業修正，資產將同步重挫。"
             elif has_redundancy:
                 eval_title = "結構冗餘：標的重疊風險"
                 eval_color = "#fbbf24"
-                eval_content = f"偵測到同時持有 QQQ 與 QQQM，兩者屬於冗餘配置，並未達到分散風險效果。建議合併標的。"
+                eval_content = f"偵測到同時持有 QQQ 與 QQQM，兩者追蹤同一指數，屬於冗餘配置，並未達到分散風險效果。建議合併標的以提升真正防禦力。"
             elif 0.9 <= weighted_beta <= 1.25 and tech_ratio < 0.6:
                 eval_title = "精英級：均衡核心—衛星配置"
                 eval_color = "#60a5fa"
-                eval_content = f"配置展現了極高的專業度。以 **{top_stock}** 為核心定海神針，是名副其實的『進可攻、退可守』。"
+                eval_content = f"配置展現了極高的專業度。以 **{top_stock}** 為核心定海神針，是名副其實的『進可攻、退可守』配置。"
             else:
                 eval_title = "穩健/防禦型配置"
                 eval_color = "#4ade80"
-                eval_content = f"組合抗風險能力強。以 **{top_stock}** 等穩健標的為主軸，能提供出色的資產保護力。"
-
-            # Alpha 評價附加字句
-            alpha_text = f"此組合之 **Jensen's Alpha 達到 {jensen_alpha*100:+.2f}%**，代表你的選股成功創造了超越大盤風險預期的**超額利潤**！" if jensen_alpha > 0 else f"注意：此組合之 **Jensen's Alpha 為 {jensen_alpha*100:+.2f}%**，意味著承擔目前的風險並未換取到打敗大盤的超額利潤。"
+                eval_content = f"組合抗風險能力強。以 **{top_stock}** 等穩健標的為主軸，能在市場動盪中提供出色的資產保護力。"
 
             st.markdown(f"""
                 <div class="report-card" style="border-left: 10px solid {eval_color}; background-color: #1e293b;">
                     <h2 style="color: {eval_color}; margin:0;">AI 綜合診斷：{eval_title}</h2>
                     <p style="margin-top:20px; font-size:18px; line-height:1.7; color: white !important;">
                         <b>分析師實話：</b><br>{eval_content}<br><br>
-                        <b>CAPM 績效表現：</b><br>{alpha_text}<br><br>
-                        <b>加權 Beta：</b>{weighted_beta:.2f} | <b>崔諾指數：</b>{treynor_ratio:.4f}<br>
+                        <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
                         <b>組合平均 RSI：</b>{weighted_rsi:.1f} ({'短期情緒過熱' if weighted_rsi > 70 else '情緒健康'})<br>
                         <b>主要資產引擎：</b>{top_stock} (依現值計算最高權重)
                     </p>
@@ -289,15 +288,13 @@ with tab2:
             """, unsafe_allow_html=True)
             
             c_pie, c_bar = st.columns(2)
-            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
-            c_bar.plotly_chart(px.bar(res_df, x='股票', y='未實現損益', title="個股損益貢獻 (Unrealized PnL)", template="plotly_dark", color='未實現損益', color_continuous_scale=['#f87171', '#4ade80']).update_layout(coloraxis_showscale=False), use_container_width=True)
+            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
+            c_bar.plotly_chart(px.bar(res_df, x='股票', y='驅動力', title="個股波動驅動力分析 (Weight × Beta)", template="plotly_dark").update_traces(marker_color='#60a5fa'), use_container_width=True)
 
 with tab3:
     st.header("📖 模型理論基礎")
     st.markdown("""
-    1. **Mark-to-Market (按市值計價)**：放棄靜態金額，採用「當前真實市值」計算動態權重與風險。
-    2. **CAPM 資本資產定價模型**：
-       * **Jensen's Alpha (詹森指數)**：衡量組合是否打敗了承擔相對應 Beta 風險下的大盤預期報酬。
-       * **Treynor Ratio (崔諾指數)**：單位系統性風險所獲得的超額報酬。
-    3. **動態多向度風險偵測**：AI 自動判定標的重疊 (Redundancy) 與產業過度集中 (Concentration) 風險。
+    1. **Mark-to-Market (按市值計價)**：放棄投入靜態金額，採用「當前真實市值」計算動態權重與系統性風險。
+    2. **馬可維茲 Beta 模型**：加權 Beta $\\beta_{p} = \\sum w_i \\beta_i$ 用於量化組合相對於標普 500 的市場風險係數。
+    3. **動態多向度風險偵測**：AI 自動判定標的重疊 (Redundancy) 與產業過度集中 (Concentration) 風險，評估真實的分散效果。
     """)
