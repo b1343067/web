@@ -1,5 +1,8 @@
 streamlit
 yfinance
 pandas
-plotly
+gspread
+google-auth
 scikit-learn
+scipy
+plotly
