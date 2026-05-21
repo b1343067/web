@@ -1,4 +1,6 @@
 import streamlit as st
+import streamlit.components.v1 as components
+import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -7,12 +9,17 @@ import plotly.express as px
 from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
-import scipy.stats as stats # 🌟 新增：統計檢定模組
+import scipy.stats as stats
+
+# ==========================================
+# 0. 參數設定區 (已完全客製化為你的專屬設定)
+# ==========================================
+LIFF_ID = "2010137574-nywnenmu"
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfi5Z7o5G6zo0YgCtXGSKWaa4JNroK8onT5R1r-sFIzOwwUHg/formResponse" 
 
 # ==========================================
 # 1. 核心計算引擎
 # ==========================================
-
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
     try:
@@ -59,9 +66,8 @@ def calculate_mdd(cumulative_returns):
     return drawdown.min()
 
 # ==========================================
-# 2. UI 視覺設計 (完美相容 config.toml)
+# 2. UI 視覺設計
 # ==========================================
-
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
 st.markdown("""
@@ -89,9 +95,42 @@ st.markdown("""
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 
-# --- 側邊欄 ---
+# ==========================================
+# 3. 抓取 LINE User ID (LIFF 邏輯)
+# ==========================================
+query_params = st.query_params
+user_id = query_params.get("userId", None)
+
+if not user_id:
+    # 執行 LIFF SDK 抓取 ID 並重新整理網頁
+    components.html(f"""
+        <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+        <script>
+            liff.init({{ liffId: '{LIFF_ID}' }}).then(() => {{
+                if (!liff.isLoggedIn()) {{
+                    liff.login();
+                }} else {{
+                    liff.getProfile().then(profile => {{
+                        window.parent.location.href = window.parent.location.href.split('?')[0] + "?userId=" + profile.userId;
+                    }});
+                }}
+            }}).catch(err => console.error("LIFF 啟動失敗:", err));
+        </script>
+        <div style="color: white; text-align: center; font-family: sans-serif; padding: 20px; font-size: 18px;">
+            🔄 正在透過 LINE 安全驗證您的身分，請稍候...
+        </div>
+    """, height=100)
+    st.stop() # 暫停渲染以下內容，直到抓到 userId
+
+# ==========================================
+# 4. 側邊欄與分頁顯示
+# ==========================================
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
+    if user_id:
+        st.success("✅ LINE 帳號已綁定")
+        st.caption(f"認證 ID: {user_id[:8]}...")
+    
     tnx_h, _, _ = fetch_financial_data("^TNX")
     spy_h, _, _ = fetch_financial_data("SPY")
     rf_rate = 0.04
@@ -106,9 +145,9 @@ with st.sidebar:
         fig_side = px.line(spy_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
-    st.info("💡 系統已啟用: 即時 MTM / CAPM 評價 / 熱力圖 / T檢定模組。")
+    st.info("💡 系統已啟用: 即時 MTM / CAPM / LINE 資料庫同步")
 
-tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與診斷", "📖 模型說明"])
+tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與 LINE 同步", "📖 模型說明"])
 
 # --- Tab 1: AI 診斷 ---
 with tab1:
@@ -148,27 +187,60 @@ with tab1:
                 c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
                 c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
 
-# --- Tab 2: 究極完全體 (損益 + CAPM + 熱力圖 + MDD + AI處方 + T-test) ---
+# --- Tab 2: 投資組合與 LINE 同步儲存 ---
 with tab2:
+    st.markdown("### 💾 儲存資產至 LINE 錢包")
+    st.caption("輸入的資料將自動與您的 LINE 帳號綁定，並寫入雲端資料庫。")
+    
+    # 建立一個儲存表單
+    with st.form("save_to_line_form"):
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            input_ticker = st.text_input("股票代號 (例如: VOO)")
+        with col_f2:
+            input_price = st.number_input("買入平均成本", min_value=0.0, step=0.01)
+        with col_f3:
+            input_shares = st.number_input("持有股數", min_value=0.0, step=0.1)
+            
+        submitted_line = st.form_submit_button("🚀 同步儲存至 LINE 資料庫")
+        
+        if submitted_line:
+            if input_ticker and input_price > 0 and input_shares > 0:
+                # 🔴 已配置專屬 Entry ID
+                form_data = {
+                    "entry.637172945": user_id,              # User_ID
+                    "entry.1886186927": input_ticker.upper(),# Ticker
+                    "entry.829335385": input_price,          # Buy_Price
+                    "entry.745239131": input_shares          # Shares
+                }
+                
+                try:
+                    response = requests.post(FORM_URL, data=form_data)
+                    if response.status_code == 200:
+                        st.success(f"🎉 成功！已將 {input_shares} 股 {input_ticker.upper()} 寫入資料庫，現在可於 LINE 使用『錢錢check』查詢！")
+                        st.balloons()
+                    else:
+                        st.error("寫入表單失敗，請稍後再試。")
+                except Exception as e:
+                    st.error(f"系統連線錯誤: {str(e)}")
+            else:
+                st.warning("⚠️ 請確認所有欄位都已填寫，且成本與股數大於 0。")
+
+    st.divider()
+
+    # 原本的即時結算測試區塊
+    st.markdown("### 🧪 沙盤推演：目前模擬持倉")
     def color_pnl_cells(val):
         color = '#4ade80' if val >= 0 else '#f87171'
         return f'color: {color} !important; font-weight: bold;'
-
-    st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
+    
     p_df = pd.DataFrame([
-        {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
-        {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
-        {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
-        {"代號": "GOOGL", "持有股數": 3,  "平均成本": 329.00},
-        {"代號": "JPM",   "持有股數": 3,  "平均成本": 308.00},
-        {"代號": "NMR",   "持有股數": 30, "平均成本": 9.49},
-        {"代號": "NVDA",  "持有股數": 5,  "平均成本": 182.94},
-        {"代號": "PLTR",  "持有股數": 6,  "平均成本": 156.74},
-        {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.15}
+        {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.15},
+        {"代號": "NVDA",  "持有股數": 5,  "平均成本": 182.94}
     ])
     edited = st.data_editor(p_df, num_rows="dynamic", use_container_width=True)
     
-    if st.button("🚀 即時結算與 AI 量化診斷"):
+    if st.button("📊 預覽即時損益與 AI 診斷"):
         with st.spinner('AI 正在計算即時損益、生成相關性矩陣與統計檢定...'):
             assets_data = []
             hist_dict = {} 
@@ -209,7 +281,7 @@ with tab2:
             total_pnl_pct = (total_pnl / total_invested_cost)*100 if total_invested_cost > 0 else 0
             pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
 
-            st.markdown(f"### 📈 即時損益與風險控制儀表板")
+            st.markdown(f"### 📈 損益儀表板")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("投入總成本", f"${total_invested_cost:,.2f}")
             m2.metric("目前總市值", f"${total_current_value:,.2f}")
@@ -226,112 +298,6 @@ with tab2:
             ]).hide(axis="index").to_html()
             
             st.markdown(styled_table, unsafe_allow_html=True)
-
-            # --- 進階計算：權重、相關性矩陣、最大回撤 (MDD)、CAPM、T-test ---
-            hist_df = pd.DataFrame(hist_dict).dropna() 
-            ret_df = hist_df.pct_change().dropna() 
-            corr_matrix = ret_df.corr() 
-
-            weights = []
-            weighted_beta, weighted_rsi, portfolio_return = 0, 0, 0
-            
-            for idx, row in res_df.iterrows():
-                weight = row["目前市值"] / total_current_value if total_current_value > 0 else 0
-                weights.append(weight)
-                res_df.at[idx, '權重'] = weight
-                res_df.at[idx, '驅動力'] = row["Beta"] * weight
-                weighted_beta += row["Beta"] * weight
-                weighted_rsi += row["RSI"] * weight
-                
-                ann_ret = hist_df[row['股票']].pct_change(252).iloc[-1]
-                portfolio_return += ann_ret * weight
-
-            # 組合每日報酬率與 MDD
-            port_daily_returns = ret_df.dot(weights)
-            cumulative_returns = (1 + port_daily_returns).cumprod()
-            port_mdd = calculate_mdd(cumulative_returns)
-            jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
-
-            # 🌟 核心新增：T-test 檢定邏輯
-            if spy_h is not None:
-                spy_daily_returns = spy_h['Close'].pct_change().dropna()
-                # 對齊日期 (確保樣本數一致)
-                aligned_returns = pd.DataFrame({
-                    'Portfolio': port_daily_returns,
-                    'Benchmark': spy_daily_returns
-                }).dropna()
-                
-                # 執行獨立雙樣本 T檢定 (Welch's t-test)
-                t_stat, p_value = stats.ttest_ind(aligned_returns['Portfolio'], aligned_returns['Benchmark'], equal_var=False)
-                
-                if p_value < 0.05:
-                    ttest_result = f"P-value 為 {p_value:.4f} < 0.05。<br><span style='color:#4ade80;'>✅ 拒絕虛無假說，此投資組合的報酬與大盤有**統計上的顯著差異**。</span>"
-                else:
-                    ttest_result = f"P-value 為 {p_value:.4f} >= 0.05。<br><span style='color:#fbbf24;'>⚠️ 無法拒絕虛無假說，此投資組合的超額表現可能來自於**隨機機率 (Random Chance)**。</span>"
-            else:
-                t_stat, p_value, ttest_result = 0, 1, "無法獲取大盤數據進行檢定。"
-
-            st.divider()
-
-            # --- AI 智能診斷與開處方 ---
-            top_stock = res_df.sort_values('權重', ascending=False)['股票'].iloc[0]
-            tech_ratio = tech_count / len(res_df) if len(res_df) > 0 else 0
-            has_redundancy = "QQQ" in res_df['股票'].values and "QQQM" in res_df['股票'].values
-
-            if tech_ratio > 0.8 and weighted_beta > 1.15:
-                eval_title = "高風險：極端成長型集中"
-                eval_color = "#f87171"
-                eval_content = f"組合極度向科技股傾斜。受 **{top_stock}** 等標的影響，在極端市況下抗跌能力極弱。"
-                prescription = f"建議減碼部分高估值科技股，並將資金轉入低相關性避險資產，以降低目前達 {abs(port_mdd*100):.1f}% 的最大回撤風險。"
-            elif has_redundancy:
-                eval_title = "結構冗餘：標的重疊風險"
-                eval_color = "#fbbf24"
-                eval_content = "偵測到同時持有 QQQ 與 QQQM，兩者追蹤同一指數，屬於無效的分散風險配置。"
-                prescription = "建議將 QQQ 完全轉換為 QQQM，釋出的資金部位佈局非科技板塊來達到真正的防禦。"
-            elif 0.9 <= weighted_beta <= 1.25 and tech_ratio < 0.6:
-                eval_title = "精英級：均衡核心—衛星配置"
-                eval_color = "#60a5fa"
-                eval_content = f"配置展現了極高的專業度。以 **{top_stock}** 為核心定海神針，是名副其實的『進可攻、退可守』。"
-                prescription = f"目前結構極佳（Alpha: {jensen_alpha*100:+.2f}%）。建議維持現有權重比例，逢低加碼核心標的。"
-            else:
-                eval_title = "穩健/防禦型配置"
-                eval_color = "#4ade80"
-                eval_content = f"組合抗波動能力強。以 **{top_stock}** 等穩健標的為主軸，能提供極佳的資產保護力。"
-                prescription = "防禦力極強但可能錯失牛市超額利潤。建議可提撥 5-10% 資金佈局高動能衛星標的以提升整體的 Alpha 表現。"
-
-            st.markdown(f"""
-                <div class="report-card" style="border-left: 10px solid {eval_color}; background-color: #1e293b;">
-                    <h2 style="color: {eval_color}; margin:0;">AI 綜合診斷：{eval_title}</h2>
-                    <p style="margin-top:20px; font-size:18px; line-height:1.7; color: white !important;">
-                        <b>分析師實話：</b><br>{eval_content}<br><br>
-                        <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
-                        <b>Jensen's Alpha ($\alpha$)：</b><span style='color: {"#4ade80" if jensen_alpha > 0 else "#f87171"}; font-weight: bold;'>{jensen_alpha*100:+.2f}%</span> (打敗大盤之超額報酬)<br>
-                        <b>歷史最大回撤 (MDD)：</b><span style='color: #f87171; font-weight: bold;'>{port_mdd*100:.2f}%</span> (最慘時的跌幅)<br>
-                    </p>
-                    
-                    <div class="ttest-box">
-                        <strong style="color:#a78bfa; font-size:18px;">🔬 統計顯著性檢定 (Two-Sample T-Test)：</strong><br>
-                        <span style="color:#f1f5f9;">
-                            以過去兩年歷史每日報酬與標普500 (SPY) 進行獨立雙樣本 T檢定。<br>
-                            <b>T-Statistic:</b> {t_stat:.4f} <br>
-                            <b>結論：</b> {ttest_result}
-                        </span>
-                    </div>
-
-                    <div class="prescription-box">
-                        <strong style="color:#60a5fa; font-size:18px;">💡 AI 智能處方 (Rebalancing Suggestion)：</strong><br>
-                        <span style="color:#f1f5f9;">{prescription}</span>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # --- 視覺大招：熱力圖與配置圖 ---
-            c_pie, c_heat = st.columns(2)
-            c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
-            
-            fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="資產相關性熱力圖 (Correlation Matrix)")
-            fig_heat.update_layout(template="plotly_dark", font=dict(color="white"))
-            c_heat.plotly_chart(fig_heat, use_container_width=True)
 
 with tab3:
     st.header("📖 模型理論與實務應用")
