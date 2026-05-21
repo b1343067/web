@@ -12,7 +12,7 @@ from sklearn.preprocessing import PolynomialFeatures
 import scipy.stats as stats
 
 # ==========================================
-# 0. 參數設定區 (已完全客製化為你的專屬設定)
+# 0. 參數設定區 (已為你完美客製化)
 # ==========================================
 LIFF_ID = "2010137574-nywnenmu"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfi5Z7o5G6zo0YgCtXGSKWaa4JNroK8onT5R1r-sFIzOwwUHg/formResponse" 
@@ -112,14 +112,17 @@ if not user_id:
                 }} else {{
                     liff.getProfile().then(profile => {{
                         window.parent.location.href = window.parent.location.href.split('?')[0] + "?userId=" + profile.userId;
-                    }});
+                    }}).catch(err => console.error("無法取得 Profile:", err));
                 }}
             }}).catch(err => console.error("LIFF 啟動失敗:", err));
         </script>
-        <div style="color: white; text-align: center; font-family: sans-serif; padding: 20px; font-size: 18px;">
-            🔄 正在透過 LINE 安全驗證您的身分，請稍候...
+        <div style="color: #60a5fa; text-align: center; font-family: sans-serif; padding: 40px; font-size: 20px; font-weight: bold;">
+            🔄 系統正在透過 LINE 安全驗證您的身分，請稍候...
         </div>
-    """, height=100)
+        <div style="color: #94a3b8; text-align: center; margin-top: 10px;">
+            ⚠️ 提示：請確保您是在手機的 LINE 聊天室內點擊網址。<br>若在電腦版測試，請在網址列後方手動加上 <b>/?userId=測試ID</b>
+        </div>
+    """, height=200)
     st.stop() # 暫停渲染以下內容，直到抓到 userId
 
 # ==========================================
@@ -206,7 +209,7 @@ with tab2:
         
         if submitted_line:
             if input_ticker and input_price > 0 and input_shares > 0:
-                # 🔴 已配置專屬 Entry ID
+                # 🔴 已為你配對正確的 4 個 Entry ID
                 form_data = {
                     "entry.637172945": user_id,              # User_ID
                     "entry.1886186927": input_ticker.upper(),# Ticker
@@ -220,7 +223,7 @@ with tab2:
                         st.success(f"🎉 成功！已將 {input_shares} 股 {input_ticker.upper()} 寫入資料庫，現在可於 LINE 使用『錢錢check』查詢！")
                         st.balloons()
                     else:
-                        st.error("寫入表單失敗，請稍後再試。")
+                        st.error("寫入表單失敗，狀態碼：" + str(response.status_code))
                 except Exception as e:
                     st.error(f"系統連線錯誤: {str(e)}")
             else:
