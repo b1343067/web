@@ -4,30 +4,13 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import gspread
-from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import scipy.stats as stats
 
 # ==========================================
-# 1. 雲端資料庫安全連線 (使用 Streamlit Secrets)
-# ==========================================
-def init_gspread():
-    try:
-        # 從 Streamlit 後台的 Secrets 讀取金鑰，GitHub 上完全不留痕跡
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        return client.open("AlphaCheck_DB").sheet1
-    except Exception as e:
-        st.error(f"⚠️ 資料庫連線失敗，請確認 Streamlit Secrets 設定: {e}")
-        return None
-
-# ==========================================
-# 2. 核心計算引擎
+# 1. 核心計算引擎 (純淨無資料庫版)
 # ==========================================
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
@@ -75,7 +58,7 @@ def calculate_mdd(cumulative_returns):
     return drawdown.min()
 
 # ==========================================
-# 3. UI 視覺設計與資料庫狀態
+# 2. UI 視覺設計與儀表板
 # ==========================================
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 
@@ -104,10 +87,6 @@ st.markdown("""
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 
-# 獲取使用者 ID，預設帶入測試 ID 方便預覽
-line_uid = st.query_params.get("userId", "B1343067")
-db_sheet = init_gspread()
-
 # --- 側邊欄 ---
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
@@ -126,11 +105,7 @@ with st.sidebar:
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
     
-    if db_sheet:
-        st.success("🟢 雲端資料庫連線正常")
-    else:
-        st.error("🔴 雲端資料庫斷線 (請檢查 Secrets)")
-    st.info(f"👤 當前使用者 ID: {line_uid}")
+    st.info("💡 系統狀態：單機獨立運作模式 (無須資料庫連線)。")
 
 tab1, tab2, tab3 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與診斷", "📖 模型說明"])
 
@@ -180,36 +155,26 @@ with tab2:
 
     st.markdown("### 💰 輸入持倉資訊 (持股數與平均成本)")
     
-    # 載入雲端資料庫中的專屬資料
+    # 這裡改回你原本寫死的預設投資組合，不連雲端了
     if "portfolio_df" not in st.session_state:
-        if db_sheet:
-            all_records = db_sheet.get_all_records()
-            user_data = [r for r in all_records if str(r.get("User_ID")) == str(line_uid)]
-            if user_data:
-                st.session_state.portfolio_df = pd.DataFrame(user_data)[["Ticker", "Shares", "Avg_Cost"]].rename(columns={"Ticker": "代號", "Shares": "持有股數", "Avg_Cost": "平均成本"})
-            else:
-                st.session_state.portfolio_df = pd.DataFrame([{"代號": "VOO", "持有股數": 9, "平均成本": 632.15}, {"代號": "NVDA", "持有股數": 5, "平均成本": 182.94}])
-        else:
-            st.session_state.portfolio_df = pd.DataFrame([{"代號": "VOO", "持有股數": 9, "平均成本": 632.15}, {"代號": "NVDA", "持有股數": 5, "平均成本": 182.94}])
+        st.session_state.portfolio_df = pd.DataFrame([
+            {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
+            {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
+            {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
+            {"代號": "GOOGL", "持有股數": 3,  "平均成本": 329.00},
+            {"代號": "JPM",   "持有股數": 3,  "平均成本": 308.00},
+            {"代號": "NMR",   "持有股數": 30, "平均成本": 9.49},
+            {"代號": "NVDA",  "持有股數": 5,  "平均成本": 182.94},
+            {"代號": "PLTR",  "持有股數": 6,  "平均成本": 156.74},
+            {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.15}
+        ])
 
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
-    if st.button("🚀 儲存至雲端並執行 AI 量化診斷"):
-        # 先將修改後的資料同步回 Google Sheets
-        if db_sheet:
-            all_records = db_sheet.get_all_records()
-            keep_data = [r for r in all_records if str(r.get("User_ID")) != str(line_uid)]
-            new_data = [["User_ID", "Ticker", "Shares", "Avg_Cost"]]
-            for r in keep_data:
-                new_data.append([r["User_ID"], r["Ticker"], r["Shares"], r["Avg_Cost"]])
-            for _, row in edited.iterrows():
-                new_data.append([line_uid, row["代號"], row["持有股數"], row["平均成本"]])
-            
-            db_sheet.clear()
-            db_sheet.update(new_data)
-            st.success("✅ 投資組合已成功備份至雲端資料庫！")
-
-        # 接著執行量化運算
+    if st.button("🚀 即時結算與 AI 量化診斷"):
+        # 按下按鈕時，將編輯後的資料存入系統記憶體，畫面重整前都會在
+        st.session_state.portfolio_df = edited
+        
         with st.spinner('AI 正在計算即時損益、生成相關性矩陣與統計檢定...'):
             assets_data = []
             hist_dict = {} 
@@ -345,7 +310,7 @@ with tab2:
                         <p style="margin-top:20px; font-size:18px; line-height:1.7; color: white !important;">
                             <b>分析師實話：</b><br>{eval_content}<br><br>
                             <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
-                            <b>Jensen's Alpha ($\\alpha$)：</b><span style='color: {"#4ade80" if jensen_alpha > 0 else "#f87171"}; font-weight: bold;'>{jensen_alpha*100:+.2f}%</span> (打敗大盤之超額報酬)<br>
+                            <b>Jensen's Alpha ($\alpha$)：</b><span style='color: {"#4ade80" if jensen_alpha > 0 else "#f87171"}; font-weight: bold;'>{jensen_alpha*100:+.2f}%</span> (打敗大盤之超額報酬)<br>
                             <b>歷史最大回撤 (MDD)：</b><span style='color: #f87171; font-weight: bold;'>{port_mdd*100:.2f}%</span> (最慘時的跌幅)<br>
                         </p>
                         
@@ -379,7 +344,7 @@ with tab3:
     st.header("📖 模型理論與實務應用")
     st.markdown("""
     1. **Mark-to-Market (按市值計價)**：採用「當前真實市值」計算動態權重，貼近實盤操作。
-    2. **CAPM 與 Jensen's Alpha ($\\alpha$)**：用於量化投資組合是否創造了高於承擔系統風險下的「超額報酬」。
+    2. **CAPM 與 Jensen's Alpha ($\alpha$)**：用於量化投資組合是否創造了高於承擔系統風險下的「超額報酬」。
     3. **Two-Sample T-test (獨立雙樣本 T檢定)**：檢定投資組合的歷史日報酬與大盤 (SPY) 是否存在統計上的顯著差異 ($P < 0.05$)，驗證超額報酬是否為隨機機率。
     4. **最大回撤 (Maximum Drawdown, MDD)**：評估在過去一段時間內，資產從最高點滑落至最低點的幅度，為衡量下行風險的極重要指標。
     5. **資產相關性矩陣 (Correlation Matrix)**：數值越接近 1 代表同漲同跌；越接近 -1 代表走勢相反。真正的「避險」建立在挑選低相關性或負相關的資產上。
