@@ -15,16 +15,12 @@ import scipy.stats as stats
 # ==========================================
 def format_ticker(ticker):
     t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
-    if t == "CASH": return "CASH"
     # 智能辨識：4位數字自動加 .TW
     if t.isdigit() and len(t) == 4: return t + ".TW"
     return t
 
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
-    if ticker_name.upper() == "CASH":
-        return pd.DataFrame({'Close': [1.0]}, index=[datetime.now()]), {"beta": 0}, None
-        
     try:
         clean_ticker = format_ticker(ticker_name)
         ticker_obj = yf.Ticker(clean_ticker)
@@ -109,7 +105,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
+st.title("🏛️ ")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -200,7 +196,7 @@ with tab1:
 # --- Tab 2: 完整投資組合診斷 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
-        {"代號": "CASH",  "持有股數": 50000, "平均成本": 1.00},
+        {"代號": "CASH",  "持有股數": 50000, "平均成本": 1.00}, # 現金預設為台幣 50000
         {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
         {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
         {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
@@ -217,7 +213,7 @@ with tab2:
         color = '#4ade80' if val >= 0 else '#f87171'
         return f'color: {color} !important; font-weight: bold;'
 
-    st.markdown("### 💰 輸入持倉資訊")
+    st.markdown("### 💰 輸入持倉資訊 (CASH 請填入台幣總額)")
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 執行 AI 量化診斷"):
@@ -225,49 +221,62 @@ with tab2:
 
         with st.spinner('AI 正在運算數據中...'):
             assets_data, hist_dict = [], {}
-            cash_val = 0     # 紀錄現金總額
-            stock_cost = 0   # 紀錄買股票投入的錢
-            stock_val = 0    # 紀錄股票目前市值
+            cash_val_usd = 0
+            stock_cost = 0
+            stock_val = 0
             tech_count = 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI', '2330.TW', '2330']
             failed_tickers = [] 
+            
+            # --- 抓取 USD/TWD 即時匯率 ---
+            usd_twd_rate = 32.2 # 預設值防呆
+            try:
+                rate_data = yf.Ticker("TWD=X").history(period="1d")
+                if not rate_data.empty:
+                    usd_twd_rate = rate_data['Close'].iloc[-1]
+            except:
+                pass
+            # -----------------------------
 
             for _, row in edited.iterrows():
                 raw_ticker = str(row["代號"]).strip()
                 if not raw_ticker: continue
                 
-                # --- 核心修改：精準分離現金與股票的成本計算 ---
+                # --- 新增：現金 (台幣轉美金) 邏輯 ---
                 if raw_ticker.upper() == "CASH":
-                    val = float(row["持有股數"])
-                    assets_data.append({"股票": "CASH", "即時現價": 1.0, "總成本": val, "目前市值": val, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
-                    cash_val += val
-                    hist_dict["CASH"] = None 
+                    twd_amt = float(row["持有股數"])
+                    usd_amt = twd_amt / usd_twd_rate # 將台幣轉換為美金
+                    assets_data.append({"股票": "CASH (TWD)", "即時現價": 1/usd_twd_rate, "總成本": usd_amt, "目前市值": usd_amt, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
+                    cash_val_usd += usd_amt
+                    hist_dict["CASH (TWD)"] = None 
                     continue
-
+                # ------------------------------------
+                
                 ticker = format_ticker(raw_ticker)
                 h, i, err = fetch_financial_data(ticker)
                 
                 if h is not None and not h.empty:
                     h = calculate_indicators(h)
                     cur_price = h['Close'].iloc[-1]
-                    cost = float(row["持有股數"]) * float(row["平均成本"])
-                    val = float(row["持有股數"]) * cur_price
+                    asset_cost = float(row["持有股數"]) * float(row["平均成本"])
+                    asset_val = float(row["持有股數"]) * cur_price
                     
-                    stock_cost += cost
-                    stock_val += val
+                    stock_cost += asset_cost
+                    stock_val += asset_val
                     
                     if ticker in tech_tickers: tech_count += 1
                         
                     beta_val = i.get('beta', 1.0) if isinstance(i, dict) and i.get('beta') is not None else 1.0
-                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": cost, "目前市值": val, "未實現損益": val - cost, "報酬率(%)": ((val - cost)/cost)*100 if cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
+                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, "未實現損益": asset_val - asset_cost, "報酬率(%)": ((asset_val - asset_cost)/asset_cost)*100 if asset_cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
                     hist_dict[ticker] = h['Close']
                 else:
                     failed_tickers.append(raw_ticker)
             
-            # 對齊矩陣用
+            # --- 為現金補齊歷史時間序列，避免矩陣計算報錯 ---
             valid_idx = next((v.index for v in hist_dict.values() if v is not None), None)
-            if "CASH" in hist_dict:
-                hist_dict["CASH"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
+            if "CASH (TWD)" in hist_dict:
+                hist_dict["CASH (TWD)"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
+            # ------------------------------------------------
 
             if failed_tickers:
                 st.warning(f"⚠️ 以下標的暫時無法載入：{', '.join(failed_tickers)}")
@@ -277,19 +286,21 @@ with tab2:
                 st.session_state['res_df'] = res_df 
                 st.session_state['hist_dict'] = hist_dict
                 
-                # --- 重構儀表板：只計算股票的報酬率 ---
-                total_val = stock_val + cash_val
-                total_pnl = stock_val - stock_cost
-                stock_pnl_pct = (total_pnl / stock_cost)*100 if stock_cost > 0 else 0
-                pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
+                # --- 分離計算：股票成本 vs 組合總市值 ---
+                total_val = stock_val + cash_val_usd
+                stock_pnl = stock_val - stock_cost
+                stock_pnl_pct = (stock_pnl / stock_cost)*100 if stock_cost > 0 else 0
+                pnl_color = "#4ade80" if stock_pnl >= 0 else "#f87171"
+                
+                st.info(f"💱 目前即時匯率：1 USD = {usd_twd_rate:.2f} TWD (台幣現金已自動轉換為美元計價)")
 
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("股票投入成本", f"${stock_cost:,.2f}")
-                m2.metric("組合總市值 (含現金)", f"${total_val:,.2f}")
-                m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">未實現總損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${total_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
+                m1.metric("股票投入總成本 (USD)", f"${stock_cost:,.2f}")
+                m2.metric("組合總市值含現金 (USD)", f"${total_val:,.2f}")
+                m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">未實現總損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${stock_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
                 m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
                 
-                styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
+                styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.4f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
                 st.markdown(styled_table, unsafe_allow_html=True)
 
                 hist_df = pd.DataFrame(hist_dict).dropna() 
