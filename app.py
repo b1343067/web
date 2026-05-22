@@ -33,26 +33,23 @@ def fetch_financial_data(ticker_name):
         try:
             info = ticker_obj.info if hasattr(ticker_obj, 'info') else {}
         except:
-            pass # 隔離 info 錯誤，確保 history 順利回傳
+            pass 
             
         return history, info, None
     except Exception as e: 
         return None, {}, str(e)
 
 def calculate_indicators(df):
-    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
-    # 均線
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA50'] = df['Close'].rolling(window=50).mean()
     df['MA200'] = df['Close'].rolling(window=200).mean()
     
-    # 新增 MACD 指標
     exp1 = df['Close'].ewm(span=12, adjust=False).mean()
     exp2 = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = exp1 - exp2
@@ -160,31 +157,23 @@ with tab1:
 
                 st.markdown(f"<div class='report-card' style='background-color: {bg}; border-color: {border};'><h3 style='margin:0; color: white !important;'>🤖 AI 智能評級：{txt}</h3><p style='margin-top:10px; font-size:18px; color: white !important;'>預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b></p></div>", unsafe_allow_html=True)
 
-                plot_data = hist.tail(150)
+                plot_data = hist.tail(150).copy()
+                # 🌟 終極殺手鐧：將時間軸強制作為「文字類別」，徹底消滅預設空白與週末
+                str_dates = plot_data.index.strftime('%Y-%m-%d')
                 
-                # 🌟 修復 1：黃金比例的上下間距 (vertical_spacing=0.08)
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
                 
                 # 上半部：K線與均線
-                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'), row=1, col=1)
+                fig.add_trace(go.Candlestick(x=str_dates, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'), row=1, col=1)
                 
                 # 下半部：MACD
                 macd_colors = ['#4ade80' if val >= 0 else '#f87171' for val in plot_data['MACD_Hist']]
-                fig.add_trace(go.Bar(x=plot_data.index, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
-
-                # 🌟 修復 2：強制鎖定 X 軸區間，消除右邊詭異空白，並隱藏六日
-                fig.update_xaxes(
-                    rangebreaks=[dict(bounds=["sat", "mon"])],
-                    range=[plot_data.index[0], plot_data.index[-1]]
-                )
-                
-                # 關閉底部的 Range Slider
-                fig.update_layout(xaxis_rangeslider_visible=False)
+                fig.add_trace(go.Bar(x=str_dates, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
                 
                 fig.update_layout(
                     template="plotly_dark", 
@@ -194,6 +183,9 @@ with tab1:
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     margin=dict(l=0, r=0, t=30, b=0)
                 )
+
+                # 強制設定類別軸，控制標籤數量，徹底裁切掉左右兩側的預設空白
+                fig.update_xaxes(type='category', nticks=10, rangeslider_visible=False)
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -230,7 +222,7 @@ with tab2:
     if st.button("🚀 執行 AI 量化診斷"):
         st.session_state.portfolio_df = edited
 
-        with st.spinner('AI 正在強行突破 Yahoo API 抓取數據中...'):
+        with st.spinner('AI 正在運算數據中...'):
             assets_data, hist_dict = [], {}
             total_cost, total_val, tech_count = 0, 0, 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI', '2330.TW', '2330']
@@ -259,14 +251,13 @@ with tab2:
                     failed_tickers.append(raw_ticker)
             
             if failed_tickers:
-                st.warning(f"⚠️ 以下標的因為 Yahoo 阻擋或無效，暫時無法載入：{', '.join(failed_tickers)}")
+                st.warning(f"⚠️ 以下標的暫時無法載入：{', '.join(failed_tickers)}")
 
             if assets_data:
                 res_df = pd.DataFrame(assets_data)
                 st.session_state['res_df'] = res_df 
                 st.session_state['hist_dict'] = hist_dict
                 
-                # --- 即時損益儀表板 ---
                 total_pnl = total_val - total_cost
                 total_pnl_pct = (total_pnl / total_cost)*100 if total_cost > 0 else 0
                 pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
@@ -280,7 +271,6 @@ with tab2:
                 styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
                 st.markdown(styled_table, unsafe_allow_html=True)
 
-                # --- 核心運算：權重、Beta、Alpha、MDD、T-test ---
                 hist_df = pd.DataFrame(hist_dict).dropna() 
                 ret_df = hist_df.pct_change().dropna() 
                 corr_matrix = ret_df.corr() 
@@ -310,7 +300,6 @@ with tab2:
 
                 st.divider()
 
-                # --- AI 完整診斷邏輯 ---
                 top_stock = res_df.sort_values('權重', ascending=False)['股票'].iloc[0]
                 tech_ratio = tech_count / len(res_df) if len(res_df) > 0 else 0
                 has_redundancy = "QQQ" in res_df['股票'].values and "QQQM" in res_df['股票'].values
@@ -352,7 +341,6 @@ with tab2:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # --- 視覺大招：熱力圖與配置圖 ---
                 c_pie, c_heat = st.columns(2)
                 c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比 (Weight)", template="plotly_dark").update_layout(font=dict(color="white")), use_container_width=True)
                 fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="資產相關性熱力圖 (Correlation Matrix)")
