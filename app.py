@@ -4,17 +4,18 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import scipy.stats as stats
 
 # ==========================================
-# 1. 核心量化引擎 (強化防擋機制)
+# 1. 核心量化引擎 (強化防擋機制 + MACD)
 # ==========================================
 def format_ticker(ticker):
-    # 自動將 BRK.B 替換成 BRK-B，並支援台股辨識
     t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
+    # 智能辨識：4位數字自動加 .TW
     if t.isdigit() and len(t) == 4: return t + ".TW"
     return t
 
@@ -30,24 +31,34 @@ def fetch_financial_data(ticker_name):
         
         info = {}
         try:
-            # 將 info 獨立隔離，就算被 Yahoo API 擋住，也不會影響股價計算
             info = ticker_obj.info if hasattr(ticker_obj, 'info') else {}
         except:
-            pass # 默默吃掉 info 的錯誤，確保 history 能順利回傳
+            pass # 隔離 info 錯誤，確保 history 順利回傳
             
         return history, info, None
     except Exception as e: 
         return None, {}, str(e)
 
 def calculate_indicators(df):
+    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
+    
+    # 均線
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA50'] = df['Close'].rolling(window=50).mean()
     df['MA200'] = df['Close'].rolling(window=200).mean()
+    
+    # 🌟 新增 MACD 指標
+    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['MACD'] - df['Signal_Line']
+    
     return df
 
 def get_ai_prediction_model(df, days=7):
@@ -102,22 +113,33 @@ st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 # --- 側邊欄 ---
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
+    
+    # 🌟 美債 10 年期回歸
+    tnx_h, _, _ = fetch_financial_data("^TNX")
     spy_h, _, _ = fetch_financial_data("SPY")
     tw_h, _, _ = fetch_financial_data("0050")
+    
     rf_rate = 0.04
     spy_ret = 0.10
     
+    if tnx_h is not None and not tnx_h.empty:
+        rf_rate = tnx_h['Close'].iloc[-1] / 100
+        st.metric("美債 10Y (無風險利率)", f"{rf_rate*100:.2f}%")
+    else:
+        st.metric("美債 10Y (無風險利率)", "4.00% (系統預設)")
+        
     if spy_h is not None and not spy_h.empty:
         spy_ret = spy_h['Close'].pct_change(252).iloc[-1]
         st.metric("美股 S&P 500 (Rm)", f"{spy_ret*100:.2f}%")
         fig_side = px.line(spy_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
+        
     if tw_h is not None and not tw_h.empty:
         tw_ret = tw_h['Close'].pct_change(252).iloc[-1]
         st.metric("台股 0050 報酬率", f"{tw_ret*100:.2f}%")
         
-    st.info("💡 系統狀態：單機獨立運作模式 (無須資料庫)")
+    st.info("💡 系統狀態：單機獨立運作模式")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與診斷", "⏳ 歷史回測與匯出", "📖 模型說明"])
 
@@ -127,7 +149,7 @@ with tab1:
     raw_ticker = col_in.text_input("輸入股票代號 (美股如 NVDA / 台股如 2330)", "2330")
     
     if raw_ticker:
-        with st.spinner('正在掃描技術指標...'):
+        with st.spinner('正在掃描技術指標與動能...'):
             hist, info, err = fetch_financial_data(raw_ticker)
             if hist is not None and not hist.empty:
                 hist = calculate_indicators(hist)
@@ -140,14 +162,27 @@ with tab1:
                 st.markdown(f"<div class='report-card' style='background-color: {bg}; border-color: {border};'><h3 style='margin:0; color: white !important;'>🤖 AI 智能評級：{txt}</h3><p style='margin-top:10px; font-size:18px; color: white !important;'>預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b></p></div>", unsafe_allow_html=True)
 
                 plot_data = hist.tail(150)
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'))
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'))
-                fig.add_trace(go.Scatter(x=f_dates + f_dates[::-1], y=[f_preds[i] + f_intervals[i] for i in range(len(f_preds))] + [f_preds[i] - f_intervals[i] for i in range(len(f_preds))][::-1], fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預期'))
-                fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#ffffff', dash='dash', width=2), name='AI 核心路徑'))
-                fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                
+                # 🌟 升級雙層圖表 (主圖 K線 + 副圖 MACD)
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
+                
+                # 上半部：K線與均線
+                fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=f_dates + f_dates[::-1], y=[f_preds[i] + f_intervals[i] for i in range(len(f_preds))] + [f_preds[i] - f_intervals[i] for i in range(len(f_preds))][::-1], fill='toself', fillcolor='rgba(96, 165, 250, 0.1)', line_color='rgba(0,0,0,0)', name='AI 波動預期'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=f_dates, y=f_preds, line=dict(color='#ffffff', dash='dash', width=2), name='AI 核心路徑'), row=1, col=1)
+                
+                # 下半部：MACD
+                macd_colors = ['#4ade80' if val >= 0 else '#f87171' for val in plot_data['MACD_Hist']]
+                fig.add_trace(go.Bar(x=plot_data.index, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
+
+                fig.update_layout(template="plotly_dark", height=750, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                fig.update_xaxes(rangeslider_visible=False) # 關閉底部的捲軸
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 c1, c2, c3, c4 = st.columns(4)
@@ -159,7 +194,6 @@ with tab1:
                 st.error("⚠️ 無法取得該標的數據，請確認代號是否正確。")
 
 # --- Tab 2: 完整投資組合診斷 ---
-# 將你常看的 9 檔標的設為預設，不用重打了
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
         {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
@@ -188,7 +222,7 @@ with tab2:
             assets_data, hist_dict = [], {}
             total_cost, total_val, tech_count = 0, 0, 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI', '2330.TW', '2330']
-            failed_tickers = [] # 紀錄失敗名單
+            failed_tickers = [] 
 
             for _, row in edited.iterrows():
                 raw_ticker = str(row["代號"]).strip()
@@ -206,15 +240,12 @@ with tab2:
                     total_val += asset_val
                     if ticker in tech_tickers: tech_count += 1
                         
-                    # 安全獲取 Beta，如果失敗就預設為 1.0
                     beta_val = i.get('beta', 1.0) if isinstance(i, dict) and i.get('beta') is not None else 1.0
-                        
                     assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, "未實現損益": asset_val - asset_cost, "報酬率(%)": ((asset_val - asset_cost)/asset_cost)*100 if asset_cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
                     hist_dict[ticker] = h['Close']
                 else:
                     failed_tickers.append(raw_ticker)
             
-            # 如果有標的陣亡，跳出警告通知
             if failed_tickers:
                 st.warning(f"⚠️ 以下標的因為 Yahoo 阻擋或無效，暫時無法載入：{', '.join(failed_tickers)}")
 
@@ -253,6 +284,7 @@ with tab2:
 
                 port_daily_ret = ret_df.dot(weights)
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
+                # 這裡的 jensen_alpha 會直接聯動側邊欄的 rf_rate (美債殖利率)
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
                 if spy_h is not None and not spy_h.empty:
@@ -351,5 +383,6 @@ with tab4:
     2. **CAPM & Jensen's Alpha**：量化超額報酬。
     3. **T-test**：檢定超額報酬是否為隨機機率。
     4. **MDD**：最大回撤。
-    5. **台股辨識**：輸入 `2330` 自動辨識為 `2330.TW`。
+    5. **MACD 動能**：結合快慢線與柱狀圖，精準捕捉趨勢反轉點。
+    6. **台股辨識**：輸入 `2330` 自動辨識為 `2330.TW`。
     """)
