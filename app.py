@@ -10,11 +10,11 @@ from sklearn.preprocessing import PolynomialFeatures
 import scipy.stats as stats
 
 # ==========================================
-# 1. 核心量化引擎 (支援台股辨識，純單機版無資料庫)
+# 1. 核心量化引擎 (強化防擋機制)
 # ==========================================
 def format_ticker(ticker):
-    t = str(ticker).upper().replace("/", "-").strip()
-    # 智能辨識：4位數字自動加 .TW
+    # 自動將 BRK.B 替換成 BRK-B，並支援台股辨識
+    t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
     if t.isdigit() and len(t) == 4: return t + ".TW"
     return t
 
@@ -24,10 +24,20 @@ def fetch_financial_data(ticker_name):
         clean_ticker = format_ticker(ticker_name)
         ticker_obj = yf.Ticker(clean_ticker)
         history = ticker_obj.history(period="2y")
-        info = ticker_obj.info if hasattr(ticker_obj, 'info') else {}
-        if history.empty: return None, None, f"找不到代號 {clean_ticker}"
+        
+        if history.empty: 
+            return None, {}, f"找不到代號 {clean_ticker}"
+        
+        info = {}
+        try:
+            # 將 info 獨立隔離，就算被 Yahoo API 擋住，也不會影響股價計算
+            info = ticker_obj.info if hasattr(ticker_obj, 'info') else {}
+        except:
+            pass # 默默吃掉 info 的錯誤，確保 history 能順利回傳
+            
         return history, info, None
-    except Exception as e: return None, None, str(e)
+    except Exception as e: 
+        return None, {}, str(e)
 
 def calculate_indicators(df):
     delta = df['Close'].diff()
@@ -97,13 +107,13 @@ with st.sidebar:
     rf_rate = 0.04
     spy_ret = 0.10
     
-    if spy_h is not None:
+    if spy_h is not None and not spy_h.empty:
         spy_ret = spy_h['Close'].pct_change(252).iloc[-1]
         st.metric("美股 S&P 500 (Rm)", f"{spy_ret*100:.2f}%")
         fig_side = px.line(spy_h.tail(45), y='Close', template="plotly_dark").update_traces(line_color='#60a5fa')
         fig_side.update_layout(height=130, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_side, use_container_width=True, config={'displayModeBar': False})
-    if tw_h is not None:
+    if tw_h is not None and not tw_h.empty:
         tw_ret = tw_h['Close'].pct_change(252).iloc[-1]
         st.metric("台股 0050 報酬率", f"{tw_ret*100:.2f}%")
         
@@ -119,7 +129,7 @@ with tab1:
     if raw_ticker:
         with st.spinner('正在掃描技術指標...'):
             hist, info, err = fetch_financial_data(raw_ticker)
-            if not err:
+            if hist is not None and not hist.empty:
                 hist = calculate_indicators(hist)
                 f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
                 cur_p = hist['Close'].iloc[-1]
@@ -143,16 +153,24 @@ with tab1:
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("即時股價", f"${cur_p:.2f}")
                 c2.metric("RSI 指標 (14D)", f"{hist['RSI'].iloc[-1]:.1f}")
-                c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A')}")
-                c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
+                c3.metric("本益比 (PE)", f"{info.get('forwardPE', 'N/A') if isinstance(info, dict) else 'N/A'}")
+                c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A') if isinstance(info, dict) else 'N/A'}")
+            else:
+                st.error("⚠️ 無法取得該標的數據，請確認代號是否正確。")
 
 # --- Tab 2: 完整投資組合診斷 ---
-# 本機直接寫死預設持倉
+# 將你常看的 9 檔標的設為預設，不用重打了
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
-        {"代號": "2330", "持有股數": 1000, "平均成本": 850}, 
-        {"代號": "VOO", "持有股數": 9, "平均成本": 632},
-        {"代號": "NVDA", "持有股數": 5, "平均成本": 182}
+        {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
+        {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
+        {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
+        {"代號": "GOOGL", "持有股數": 3,  "平均成本": 329.00},
+        {"代號": "JPM",   "持有股數": 3,  "平均成本": 308.00},
+        {"代號": "NMR",   "持有股數": 30, "平均成本": 9.49},
+        {"代號": "NVDA",  "持有股數": 5,  "平均成本": 182.94},
+        {"代號": "PLTR",  "持有股數": 6,  "平均成本": 156.74},
+        {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.15}
     ])
 
 with tab2:
@@ -164,18 +182,22 @@ with tab2:
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 執行 AI 量化診斷"):
-        # 單機版直接存入 Session State
         st.session_state.portfolio_df = edited
 
-        with st.spinner('AI 正在計算即時損益、相關性矩陣與 T-test 檢定...'):
+        with st.spinner('AI 正在強行突破 Yahoo API 抓取數據中...'):
             assets_data, hist_dict = [], {}
             total_cost, total_val, tech_count = 0, 0, 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI', '2330.TW', '2330']
+            failed_tickers = [] # 紀錄失敗名單
 
             for _, row in edited.iterrows():
-                ticker = format_ticker(row["代號"])
-                h, i, _ = fetch_financial_data(ticker)
-                if h is not None:
+                raw_ticker = str(row["代號"]).strip()
+                if not raw_ticker: continue
+                
+                ticker = format_ticker(raw_ticker)
+                h, i, err = fetch_financial_data(ticker)
+                
+                if h is not None and not h.empty:
                     h = calculate_indicators(h)
                     cur_price = h['Close'].iloc[-1]
                     asset_cost = float(row["持有股數"]) * float(row["平均成本"])
@@ -184,8 +206,17 @@ with tab2:
                     total_val += asset_val
                     if ticker in tech_tickers: tech_count += 1
                         
-                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, "未實現損益": asset_val - asset_cost, "報酬率(%)": ((asset_val - asset_cost)/asset_cost)*100 if asset_cost>0 else 0, "Beta": i.get('beta', 1.0), "RSI": h['RSI'].iloc[-1]})
+                    # 安全獲取 Beta，如果失敗就預設為 1.0
+                    beta_val = i.get('beta', 1.0) if isinstance(i, dict) and i.get('beta') is not None else 1.0
+                        
+                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, "未實現損益": asset_val - asset_cost, "報酬率(%)": ((asset_val - asset_cost)/asset_cost)*100 if asset_cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
                     hist_dict[ticker] = h['Close']
+                else:
+                    failed_tickers.append(raw_ticker)
+            
+            # 如果有標的陣亡，跳出警告通知
+            if failed_tickers:
+                st.warning(f"⚠️ 以下標的因為 Yahoo 阻擋或無效，暫時無法載入：{', '.join(failed_tickers)}")
 
             if assets_data:
                 res_df = pd.DataFrame(assets_data)
@@ -224,11 +255,14 @@ with tab2:
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
-                if spy_h is not None:
+                if spy_h is not None and not spy_h.empty:
                     spy_daily_returns = spy_h['Close'].pct_change().dropna()
                     aligned = pd.DataFrame({'Port': port_daily_ret, 'SPY': spy_daily_returns}).dropna()
-                    t_stat, p_value = stats.ttest_ind(aligned['Port'], aligned['SPY'], equal_var=False)
-                    ttest_result = f"P-value 為 {p_value:.4f} < 0.05。<br><span style='color:#4ade80;'>✅ 拒絕虛無假說，此組合與大盤有**統計顯著差異**。</span>" if p_value < 0.05 else f"P-value 為 {p_value:.4f} >= 0.05。<br><span style='color:#fbbf24;'>⚠️ 無法拒絕虛無假說，超額表現可能為**隨機機率**。</span>"
+                    if not aligned.empty:
+                        t_stat, p_value = stats.ttest_ind(aligned['Port'], aligned['SPY'], equal_var=False)
+                        ttest_result = f"P-value 為 {p_value:.4f} < 0.05。<br><span style='color:#4ade80;'>✅ 拒絕虛無假說，此組合與大盤有**統計顯著差異**。</span>" if p_value < 0.05 else f"P-value 為 {p_value:.4f} >= 0.05。<br><span style='color:#fbbf24;'>⚠️ 無法拒絕虛無假說，超額表現可能為**隨機機率**。</span>"
+                    else:
+                        t_stat, ttest_result = 0, "無足夠數據"
                 else: t_stat, ttest_result = 0, "無大盤數據"
 
                 st.divider()
@@ -294,11 +328,14 @@ with tab3:
         ret_df = pd.DataFrame(hist_dict).pct_change().dropna()
         
         port_cum_ret = (1 + ret_df.dot(weights)).cumprod()
-        spy_cum_ret = (1 + spy_h['Close'].pct_change().dropna()).cumprod()
         
         fig_bt = go.Figure()
         fig_bt.add_trace(go.Scatter(x=port_cum_ret.index, y=port_cum_ret, name='你的投資組合', line=dict(color='#4ade80', width=2.5)))
-        fig_bt.add_trace(go.Scatter(x=spy_cum_ret.index, y=spy_cum_ret, name='大盤 (S&P 500)', line=dict(color='#94a3b8', width=1.5, dash='dash')))
+        
+        if spy_h is not None and not spy_h.empty:
+            spy_cum_ret = (1 + spy_h['Close'].pct_change().dropna()).cumprod()
+            fig_bt.add_trace(go.Scatter(x=spy_cum_ret.index, y=spy_cum_ret, name='大盤 (S&P 500)', line=dict(color='#94a3b8', width=1.5, dash='dash')))
+            
         fig_bt.update_layout(template="plotly_dark", title="近兩年資產資金曲線 (Equity Curve)", height=450, margin=dict(l=0,r=0,t=40,b=0))
         st.plotly_chart(fig_bt, use_container_width=True)
         
