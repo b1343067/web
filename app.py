@@ -85,7 +85,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
+st.title("🏛️ : 專業投資決策")
 
 # --- 側邊欄 ---
 with st.sidebar:
