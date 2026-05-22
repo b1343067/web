@@ -4,19 +4,17 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import gspread
-from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import scipy.stats as stats
 
-
 # ==========================================
-# 2. 核心量化引擎 (包含台股辨識)
+# 1. 核心量化引擎 (支援台股辨識，純單機版無資料庫)
 # ==========================================
 def format_ticker(ticker):
     t = str(ticker).upper().replace("/", "-").strip()
+    # 智能辨識：4位數字自動加 .TW
     if t.isdigit() and len(t) == 4: return t + ".TW"
     return t
 
@@ -68,7 +66,7 @@ def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8-sig')
 
 # ==========================================
-# 3. UI 視覺設計與 CSS
+# 2. UI 視覺設計與 CSS
 # ==========================================
 st.set_page_config(page_title="AlphaCheck Elite", layout="wide")
 st.markdown("""
@@ -91,10 +89,6 @@ st.markdown("""
 
 st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 
-# 身份與資料庫
-line_uid = st.query_params.get("userId", "B1343067")
-db_sheet = init_gspread()
-
 # --- 側邊欄 ---
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
@@ -113,9 +107,7 @@ with st.sidebar:
         tw_ret = tw_h['Close'].pct_change(252).iloc[-1]
         st.metric("台股 0050 報酬率", f"{tw_ret*100:.2f}%")
         
-    if db_sheet: st.success("🟢 雲端資料庫連線正常")
-    else: st.warning("🟡 本機單機模式運作中")
-    st.info(f"👤 當前使用者: {line_uid}")
+    st.info("💡 系統狀態：單機獨立運作模式 (無須資料庫)")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 AI 市場診斷", "🛡️ 投資組合深度績效與診斷", "⏳ 歷史回測與匯出", "📖 模型說明"])
 
@@ -155,12 +147,13 @@ with tab1:
                 c4.metric("市場風險 Beta", f"{info.get('beta', 'N/A')}")
 
 # --- Tab 2: 完整投資組合診斷 ---
+# 本機直接寫死預設持倉
 if "portfolio_df" not in st.session_state:
-    if db_sheet:
-        user_data = [r for r in db_sheet.get_all_records() if str(r.get("User_ID")) == str(line_uid)]
-        st.session_state.portfolio_df = pd.DataFrame(user_data)[["Ticker", "Shares", "Avg_Cost"]].rename(columns={"Ticker": "代號", "Shares": "持有股數", "Avg_Cost": "平均成本"}) if user_data else pd.DataFrame([{"代號": "2330", "持有股數": 1000, "平均成本": 850}, {"代號": "VOO", "持有股數": 9, "平均成本": 632}])
-    else:
-        st.session_state.portfolio_df = pd.DataFrame([{"代號": "2330", "持有股數": 1000, "平均成本": 850}, {"代號": "VOO", "持有股數": 9, "平均成本": 632}])
+    st.session_state.portfolio_df = pd.DataFrame([
+        {"代號": "2330", "持有股數": 1000, "平均成本": 850}, 
+        {"代號": "VOO", "持有股數": 9, "平均成本": 632},
+        {"代號": "NVDA", "持有股數": 5, "平均成本": 182}
+    ])
 
 with tab2:
     def color_pnl_cells(val):
@@ -170,13 +163,9 @@ with tab2:
     st.markdown("### 💰 輸入持倉資訊")
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
-    if st.button("🚀 儲存並執行 AI 量化診斷"):
-        if db_sheet:
-            keep = [r for r in db_sheet.get_all_records() if str(r.get("User_ID")) != str(line_uid)]
-            new_data = [["User_ID", "Ticker", "Shares", "Avg_Cost"]] + [[r["User_ID"], r["Ticker"], r["Shares"], r["Avg_Cost"]] for r in keep] + [[line_uid, r["代號"], r["持有股數"], r["平均成本"]] for _, r in edited.iterrows()]
-            db_sheet.clear()
-            db_sheet.update(new_data)
-            st.success("✅ 資料已同步至雲端資料庫")
+    if st.button("🚀 執行 AI 量化診斷"):
+        # 單機版直接存入 Session State
+        st.session_state.portfolio_df = edited
 
         with st.spinner('AI 正在計算即時損益、相關性矩陣與 T-test 檢定...'):
             assets_data, hist_dict = [], {}
