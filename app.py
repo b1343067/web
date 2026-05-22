@@ -114,7 +114,7 @@ st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
     
-    # 🌟 美債 10 年期回歸
+    # 🌟 美債 10 年期與大盤
     tnx_h, _, _ = fetch_financial_data("^TNX")
     spy_h, _, _ = fetch_financial_data("SPY")
     tw_h, _, _ = fetch_financial_data("0050")
@@ -163,8 +163,8 @@ with tab1:
 
                 plot_data = hist.tail(150)
                 
-                # 🌟 升級雙層圖表 (主圖 K線 + 副圖 MACD)
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.05)
+                # 🌟 升級雙層圖表：調整了 vertical_spacing 給予更多留白呼吸空間
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.15)
                 
                 # 上半部：K線與均線
                 fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
@@ -179,6 +179,20 @@ with tab1:
                 fig.add_trace(go.Bar(x=plot_data.index, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
+
+                # 🌟 隱藏週末的空白，讓 K 線緊密相連
+                fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+                
+                # 🌟 加上未來預測區塊的背景色
+                last_trading_date = plot_data.index[-1]
+                fig.add_vrect(
+                    x0=last_trading_date, x1=f_dates[-1], 
+                    fillcolor="rgba(255, 255, 255, 0.05)", 
+                    line_width=0, 
+                    annotation_text="AI 預測區間", 
+                    annotation_position="top left", 
+                    annotation_font_color="#94a3b8"
+                )
 
                 fig.update_layout(template="plotly_dark", height=750, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 fig.update_xaxes(rangeslider_visible=False) # 關閉底部的捲軸
