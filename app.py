@@ -114,7 +114,6 @@ st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 with st.sidebar:
     st.markdown("### 🌍 市場監控中心")
     
-    # 美債 10 年期與大盤
     tnx_h, _, _ = fetch_financial_data("^TNX")
     spy_h, _, _ = fetch_financial_data("SPY")
     tw_h, _, _ = fetch_financial_data("0050")
@@ -153,7 +152,6 @@ with tab1:
             hist, info, err = fetch_financial_data(raw_ticker)
             if hist is not None and not hist.empty:
                 hist = calculate_indicators(hist)
-                # 保留 AI 運算結果供上方卡片顯示
                 f_dates, f_preds, f_intervals = get_ai_prediction_model(hist)
                 cur_p = hist['Close'].iloc[-1]
                 target_p = f_preds[-1]
@@ -164,27 +162,38 @@ with tab1:
 
                 plot_data = hist.tail(150)
                 
-                # 🌟 升級雙層圖表：移除 AI 繪圖區間，並大幅拉開上下間距 (vertical_spacing=0.25)
-                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35], vertical_spacing=0.25)
+                # 🌟 修復 1：黃金比例的上下間距 (vertical_spacing=0.08)
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
                 
-                # 上半部：K線與均線 (純淨版，無 AI 預測線)
+                # 上半部：K線與均線
                 fig.add_trace(go.Candlestick(x=plot_data.index, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'), row=1, col=1)
                 
-                # 下半部：MACD (因為沒了未來預測時間軸，MACD 現在會完全填滿右邊)
+                # 下半部：MACD
                 macd_colors = ['#4ade80' if val >= 0 else '#f87171' for val in plot_data['MACD_Hist']]
                 fig.add_trace(go.Bar(x=plot_data.index, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
 
-                # 隱藏週末的空白，讓 K 線緊密相連
-                fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+                # 🌟 修復 2：強制鎖定 X 軸區間，消除右邊詭異空白，並隱藏六日
+                fig.update_xaxes(
+                    rangebreaks=[dict(bounds=["sat", "mon"])],
+                    range=[plot_data.index[0], plot_data.index[-1]]
+                )
                 
-                # 總高度拉高至 800，確保上下留白充足
-                fig.update_layout(template="plotly_dark", height=800, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                fig.update_xaxes(rangeslider_visible=False) 
+                # 關閉底部的 Range Slider
+                fig.update_layout(xaxis_rangeslider_visible=False)
+                
+                fig.update_layout(
+                    template="plotly_dark", 
+                    height=700, 
+                    paper_bgcolor='rgba(0,0,0,0)', 
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -287,7 +296,6 @@ with tab2:
 
                 port_daily_ret = ret_df.dot(weights)
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
-                # 這裡的 jensen_alpha 會直接聯動側邊欄的 rf_rate (美債殖利率)
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
                 if spy_h is not None and not spy_h.empty:
