@@ -15,6 +15,8 @@ import scipy.stats as stats
 # ==========================================
 def format_ticker(ticker):
     t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
+    # --- 新增現金判定 ---
+    if t == "CASH": return "CASH"
     # 智能辨識：4位數字自動加 .TW
     if t.isdigit() and len(t) == 4: return t + ".TW"
     return t
@@ -200,6 +202,8 @@ with tab1:
 # --- Tab 2: 完整投資組合診斷 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
+        # --- 新增現金為預設配置 ---
+        {"代號": "CASH",  "持有股數": 50000, "平均成本": 1.00},
         {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
         {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
         {"代號": "BRK.B", "持有股數": 6,  "平均成本": 474.95},
@@ -233,6 +237,18 @@ with tab2:
                 if not raw_ticker: continue
                 
                 ticker = format_ticker(raw_ticker)
+                
+                # --- 新增：獨立現金處理邏輯 ---
+                if ticker == "CASH":
+                    shares = float(row["持有股數"])
+                    assets_data.append({"股票": "CASH", "即時現價": 1.0, "總成本": shares, "目前市值": shares, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
+                    total_cost += shares
+                    total_val += shares
+                    # 放入佔位符保持順序對齊
+                    hist_dict["CASH"] = None 
+                    continue
+                # ----------------------------
+
                 h, i, err = fetch_financial_data(ticker)
                 
                 if h is not None and not h.empty:
@@ -250,6 +266,12 @@ with tab2:
                 else:
                     failed_tickers.append(raw_ticker)
             
+            # --- 新增：填補現金的歷史數據以對齊後方矩陣運算 ---
+            valid_idx = next((v.index for v in hist_dict.values() if v is not None), None)
+            if "CASH" in hist_dict:
+                hist_dict["CASH"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
+            # ----------------------------------------------
+
             if failed_tickers:
                 st.warning(f"⚠️ 以下標的暫時無法載入：{', '.join(failed_tickers)}")
 
@@ -282,6 +304,7 @@ with tab2:
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
+                    # 現金的回報不列入運算，維持原邏輯
                     portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
 
                 port_daily_ret = ret_df.dot(weights)
