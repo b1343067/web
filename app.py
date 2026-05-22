@@ -15,7 +15,6 @@ import scipy.stats as stats
 # ==========================================
 def format_ticker(ticker):
     t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
-    # --- 新增現金判定 ---
     if t == "CASH": return "CASH"
     # 智能辨識：4位數字自動加 .TW
     if t.isdigit() and len(t) == 4: return t + ".TW"
@@ -23,6 +22,9 @@ def format_ticker(ticker):
 
 @st.cache_data(ttl=3600)
 def fetch_financial_data(ticker_name):
+    if ticker_name.upper() == "CASH":
+        return pd.DataFrame({'Close': [1.0]}, index=[datetime.now()]), {"beta": 0}, None
+        
     try:
         clean_ticker = format_ticker(ticker_name)
         ticker_obj = yf.Ticker(clean_ticker)
@@ -107,7 +109,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏛️ ")
+st.title("🏛️ AlphaCheck Elite: 專業投資決策終端")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -160,18 +162,15 @@ with tab1:
                 st.markdown(f"<div class='report-card' style='background-color: {bg}; border-color: {border};'><h3 style='margin:0; color: white !important;'>🤖 AI 智能評級：{txt}</h3><p style='margin-top:10px; font-size:18px; color: white !important;'>預估 7 日目標：<b>${target_p:.2f}</b> | 期望收益：<b>{expected_ret:+.2f}%</b></p></div>", unsafe_allow_html=True)
 
                 plot_data = hist.tail(150).copy()
-                # 🌟 終極殺手鐧：將時間軸強制作為「文字類別」，徹底消滅預設空白與週末
                 str_dates = plot_data.index.strftime('%Y-%m-%d')
                 
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
                 
-                # 上半部：K線與均線
                 fig.add_trace(go.Candlestick(x=str_dates, open=plot_data['Open'], high=plot_data['High'], low=plot_data['Low'], close=plot_data['Close'], name='歷史走勢', increasing_line_color='#4ade80', decreasing_line_color='#f87171'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA (短)'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA (中)'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA200'], line=dict(color='#94a3b8', width=2), name='200MA (生命線)'), row=1, col=1)
                 
-                # 下半部：MACD
                 macd_colors = ['#4ade80' if val >= 0 else '#f87171' for val in plot_data['MACD_Hist']]
                 fig.add_trace(go.Bar(x=str_dates, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
@@ -186,7 +185,6 @@ with tab1:
                     margin=dict(l=0, r=0, t=30, b=0)
                 )
 
-                # 強制設定類別軸，控制標籤數量，徹底裁切掉左右兩側的預設空白
                 fig.update_xaxes(type='category', nticks=10, rangeslider_visible=False)
                 
                 st.plotly_chart(fig, use_container_width=True)
@@ -202,7 +200,6 @@ with tab1:
 # --- Tab 2: 完整投資組合診斷 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
-        # --- 新增現金為預設配置 ---
         {"代號": "CASH",  "持有股數": 50000, "平均成本": 1.00},
         {"代號": "AAOI",  "持有股數": 2,  "平均成本": 203.00},
         {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30},
@@ -228,7 +225,10 @@ with tab2:
 
         with st.spinner('AI 正在運算數據中...'):
             assets_data, hist_dict = [], {}
-            total_cost, total_val, tech_count = 0, 0, 0
+            cash_val = 0     # 紀錄現金總額
+            stock_cost = 0   # 紀錄買股票投入的錢
+            stock_val = 0    # 紀錄股票目前市值
+            tech_count = 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'PLTR', 'ARKF', 'SMH', 'SOXX', 'AAOI', '2330.TW', '2330']
             failed_tickers = [] 
 
@@ -236,41 +236,38 @@ with tab2:
                 raw_ticker = str(row["代號"]).strip()
                 if not raw_ticker: continue
                 
-                ticker = format_ticker(raw_ticker)
-                
-                # --- 新增：獨立現金處理邏輯 ---
-                if ticker == "CASH":
-                    shares = float(row["持有股數"])
-                    assets_data.append({"股票": "CASH", "即時現價": 1.0, "總成本": shares, "目前市值": shares, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
-                    total_cost += shares
-                    total_val += shares
-                    # 放入佔位符保持順序對齊
+                # --- 核心修改：精準分離現金與股票的成本計算 ---
+                if raw_ticker.upper() == "CASH":
+                    val = float(row["持有股數"])
+                    assets_data.append({"股票": "CASH", "即時現價": 1.0, "總成本": val, "目前市值": val, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
+                    cash_val += val
                     hist_dict["CASH"] = None 
                     continue
-                # ----------------------------
 
+                ticker = format_ticker(raw_ticker)
                 h, i, err = fetch_financial_data(ticker)
                 
                 if h is not None and not h.empty:
                     h = calculate_indicators(h)
                     cur_price = h['Close'].iloc[-1]
-                    asset_cost = float(row["持有股數"]) * float(row["平均成本"])
-                    asset_val = float(row["持有股數"]) * cur_price
-                    total_cost += asset_cost
-                    total_val += asset_val
+                    cost = float(row["持有股數"]) * float(row["平均成本"])
+                    val = float(row["持有股數"]) * cur_price
+                    
+                    stock_cost += cost
+                    stock_val += val
+                    
                     if ticker in tech_tickers: tech_count += 1
                         
                     beta_val = i.get('beta', 1.0) if isinstance(i, dict) and i.get('beta') is not None else 1.0
-                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": asset_cost, "目前市值": asset_val, "未實現損益": asset_val - asset_cost, "報酬率(%)": ((asset_val - asset_cost)/asset_cost)*100 if asset_cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
+                    assets_data.append({"股票": ticker, "即時現價": cur_price, "總成本": cost, "目前市值": val, "未實現損益": val - cost, "報酬率(%)": ((val - cost)/cost)*100 if cost>0 else 0, "Beta": beta_val, "RSI": h['RSI'].iloc[-1]})
                     hist_dict[ticker] = h['Close']
                 else:
                     failed_tickers.append(raw_ticker)
             
-            # --- 新增：填補現金的歷史數據以對齊後方矩陣運算 ---
+            # 對齊矩陣用
             valid_idx = next((v.index for v in hist_dict.values() if v is not None), None)
             if "CASH" in hist_dict:
                 hist_dict["CASH"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
-            # ----------------------------------------------
 
             if failed_tickers:
                 st.warning(f"⚠️ 以下標的暫時無法載入：{', '.join(failed_tickers)}")
@@ -280,15 +277,17 @@ with tab2:
                 st.session_state['res_df'] = res_df 
                 st.session_state['hist_dict'] = hist_dict
                 
-                total_pnl = total_val - total_cost
-                total_pnl_pct = (total_pnl / total_cost)*100 if total_cost > 0 else 0
+                # --- 重構儀表板：只計算股票的報酬率 ---
+                total_val = stock_val + cash_val
+                total_pnl = stock_val - stock_cost
+                stock_pnl_pct = (total_pnl / stock_cost)*100 if stock_cost > 0 else 0
                 pnl_color = "#4ade80" if total_pnl >= 0 else "#f87171"
 
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("投入總成本", f"${total_cost:,.2f}")
-                m2.metric("目前總市值", f"${total_val:,.2f}")
+                m1.metric("股票投入成本", f"${stock_cost:,.2f}")
+                m2.metric("組合總市值 (含現金)", f"${total_val:,.2f}")
                 m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">未實現總損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${total_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
-                m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">總體報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{total_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
+                m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
                 
                 styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
                 st.markdown(styled_table, unsafe_allow_html=True)
@@ -304,7 +303,6 @@ with tab2:
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
-                    # 現金的回報不列入運算，維持原邏輯
                     portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
 
                 port_daily_ret = ret_df.dot(weights)
