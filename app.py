@@ -138,10 +138,10 @@ with st.sidebar:
         
     st.info("💡 系統狀態：含期末報告運算模組")
 
-# 新增 5 個 Tabs (把你原本的跟報告需要的完美融合)
+# 新增 5 個 Tabs 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 AI 市場診斷", "🛡️ 現有持倉深度績效與診斷", "🎓 期末報告專用 (最佳化引擎)", "⏳ 歷史回測與匯出", "📖 模型說明"])
 
-# --- Tab 1: AI 診斷 (完全保留你的原版) ---
+# --- Tab 1: AI 診斷 ---
 with tab1:
     col_in, _ = st.columns([2, 2])
     raw_ticker = col_in.text_input("輸入股票代號 (美股如 NVDA / 台股如 2330)", "2330")
@@ -183,7 +183,7 @@ with tab1:
             else:
                 st.error("⚠️ 無法取得該標的數據。")
 
-# --- 持倉預設值 (結合你真實投資組合與報告需要) ---
+# --- 持倉預設值 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
         {"代號": "CASH",  "持有股數": 20000, "平均成本": 1.00},
@@ -194,7 +194,7 @@ if "portfolio_df" not in st.session_state:
         {"代號": "2330",  "持有股數": 200, "平均成本": 700.00}
     ])
 
-# --- Tab 2: 完整投資組合診斷 (完全保留你的原版) ---
+# --- Tab 2: 完整投資組合診斷 ---
 with tab2:
     def color_pnl_cells(val):
         color = '#4ade80' if val >= 0 else '#f87171'
@@ -288,7 +288,6 @@ with tab2:
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
-                    # 避免現金導致計算錯誤
                     if row['股票'] != 'CASH (TWD)':
                         portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
 
@@ -329,7 +328,7 @@ with tab2:
                 fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="資產相關性熱力圖")
                 c_heat.plotly_chart(fig_heat, use_container_width=True)
 
-# --- Tab 3: 期末報告專用 (全新功能：完美解決教授需求) ---
+# --- Tab 3: 期末報告專用 (已修正權重限制 5% ~ 45%) ---
 with tab3:
     st.markdown("### 🏆 期末報告：夏普值最佳化演算 (規劃求解)")
     st.info("此區塊會自動抓取你『Tab 2 輸入的持倉標的』(自動排除現金)，透過 CAPM 模型計算預期報酬，並找出最高夏普值的最佳權重。")
@@ -384,7 +383,10 @@ with tab3:
 
             num_assets = len(tickers)
             constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-            bounds = tuple((0.0, 1.0) for _ in range(num_assets))
+            
+            # 💡 實務修正：設定權重上下限 (最少 5%，最多 45%)
+            bounds = tuple((0.05, 0.45) for _ in range(num_assets))
+            
             init_guess = num_assets * [1./num_assets,]
             
             opt_res = minimize(neg_sharpe, init_guess, args=(mean_returns, cov_matrix, rf_rate), method='SLSQP', bounds=bounds, constraints=constraints)
@@ -395,7 +397,7 @@ with tab3:
             port_future_std = np.sqrt(np.dot(opt_weights.T, np.dot(cov_matrix, opt_weights)))
             port_future_sharpe = (port_future_ret - rf_rate) / port_future_std
             
-            st.success("✅ 規劃求解完成！已成功找到最高 Sharpe 值的權重配置。")
+            st.success("✅ 規劃求解完成！已成功找到具備實務分散性的最高 Sharpe 值權重配置。")
             
             st.markdown("#### 1. 個別標的分析 (過去 1 年 vs 預期未來 1 年)")
             st.dataframe(df_ind.style.format({
@@ -403,9 +405,9 @@ with tab3:
                 "Beta值": "{:.2f}", "預期未來1年報酬率(CAPM)": "{:.2%}", "預期未來1年標準差": "{:.2%}", "預期未來1年Sharpe": "{:.2f}"
             }), use_container_width=True)
             
-            st.markdown("#### 2. 夏普值極大化配置結果")
+            st.markdown("#### 2. 夏普值極大化配置結果 (受 5%-45% 邊界限制)")
             c_chart, c_text = st.columns(2)
-            fig_pie_opt = px.pie(values=opt_weights, names=tickers, hole=0.4, title="🏆 理論最佳權重配比", template="plotly_dark")
+            fig_pie_opt = px.pie(values=opt_weights, names=tickers, hole=0.4, title="🏆 實務最佳權重配比", template="plotly_dark")
             c_chart.plotly_chart(fig_pie_opt, use_container_width=True)
             
             df_weights = pd.DataFrame({"標的": tickers, "最佳配置權重": opt_weights})
@@ -422,7 +424,7 @@ with tab3:
             
         else: st.warning("請先在「Tab 2: 現有持倉深度績效與診斷」頁籤點擊執行運算！")
 
-# --- Tab 4: 回測與報表 (完全保留你的原版) ---
+# --- Tab 4: 回測與報表 ---
 with tab4:
     st.markdown("### 📊 歷史回測與投資組合表現")
     if 'hist_dict' in st.session_state and 'res_df' in st.session_state:
@@ -461,7 +463,7 @@ with tab4:
         st.download_button(label="📊 點擊下載量化分析報告 (CSV)", data=convert_df_to_csv(res_df), file_name=f"AlphaCheck_Report_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
     else: st.warning("請先在「Tab 2: 現有持倉深度績效與診斷」頁籤點擊執行運算。")
 
-# --- Tab 5: 說明 (完全保留你的原版) ---
+# --- Tab 5: 說明 ---
 with tab5:
     st.header("📖 模型理論與實務應用")
     st.markdown("""
@@ -470,5 +472,5 @@ with tab5:
     3. **T-test**：檢定超額報酬是否為隨機機率。
     4. **MDD**：最大回撤。
     5. **MACD 動能**：結合快慢線與柱狀圖，精準捕捉趨勢反轉點。
-    6. **期末報告規劃求解 (Tab 3)**：使用 Scipy Minimize 尋找最大化 Sharpe Ratio 之權重配置。
+    6. **期末報告規劃求解 (Tab 3)**：使用 Scipy Minimize 尋找最大化 Sharpe Ratio 之權重配置，**並設定 5% ~ 45% 的權重邊界**，確保投資組合符合實務上的分散風險原則。
     """)
