@@ -183,10 +183,9 @@ with tab1:
             else:
                 st.error("⚠️ 無法取得該標的數據。")
 
-# --- 持倉預設值 ---
+# --- 持倉預設值 (移除 CASH，確保表格內只有純股票) ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
-        {"代號": "CASH",  "持有股數": 20000, "平均成本": 1.00},
         {"代號": "VOO",   "持有股數": 10,  "平均成本": 450.00},
         {"代號": "BRK.B", "持有股數": 15,  "平均成本": 400.00},
         {"代號": "GOOGL", "持有股數": 30,  "平均成本": 130.00},
@@ -200,38 +199,37 @@ with tab2:
         color = '#4ade80' if val >= 0 else '#f87171'
         return f'color: {color} !important; font-weight: bold;'
 
-    st.markdown("### 💰 輸入持倉資訊 (CASH 請填入台幣總額)")
+    st.markdown("### 💰 資金水位管理")
+    # 獨立的現金輸入框，預設給 5 萬台幣
+    cash_twd = st.number_input("💵 目前閒置現金 (台幣 TWD)", min_value=0.0, value=50000.0, step=1000.0)
+    st.markdown("---")
+    
+    st.markdown("### 📈 現有股票持倉")
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
     if st.button("🚀 執行 AI 量化診斷"):
         st.session_state.portfolio_df = edited
         with st.spinner('AI 正在運算數據中...'):
             assets_data, hist_dict = [], {}
-            cash_val_usd = 0
             stock_cost = 0
             stock_val = 0
             tech_count = 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'PLTR', 'ARKF', 'SMH', 'AAOI', '2330.TW', '2330']
             failed_tickers = [] 
             
-            # 抓取匯率
+            # 抓取即時匯率
             usd_twd_rate = 32.2 
             try:
                 rate_data = yf.Ticker("TWD=X").history(period="1d")
                 if not rate_data.empty: usd_twd_rate = rate_data['Close'].iloc[-1]
             except: pass
+            
+            # 台幣現金換算成美元
+            cash_usd = cash_twd / usd_twd_rate
 
             for _, row in edited.iterrows():
                 raw_ticker = str(row["代號"]).strip()
                 if not raw_ticker: continue
-                
-                if raw_ticker.upper() == "CASH":
-                    twd_amt = float(row["持有股數"])
-                    usd_amt = twd_amt / usd_twd_rate 
-                    assets_data.append({"股票": "CASH (TWD)", "即時現價": 1/usd_twd_rate, "總成本": usd_amt, "目前市值": usd_amt, "未實現損益": 0.0, "報酬率(%)": 0.0, "Beta": 0.0, "RSI": 0.0})
-                    cash_val_usd += usd_amt
-                    hist_dict["CASH (TWD)"] = None 
-                    continue
                 
                 ticker = format_ticker(raw_ticker)
                 h, i, err = fetch_financial_data(ticker)
@@ -252,16 +250,22 @@ with tab2:
                 else:
                     failed_tickers.append(raw_ticker)
             
+            # 填補現金歷史數據佔位符 (為了後面算 MDD 和組合 Beta)
             valid_idx = next((v.index for v in hist_dict.values() if v is not None), None)
-            if "CASH (TWD)" in hist_dict:
-                hist_dict["CASH (TWD)"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
+            hist_dict["CASH (TWD)"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
+
+            if failed_tickers:
+                st.warning(f"⚠️ 以下標的暫時無法載入：{', '.join(failed_tickers)}")
 
             if assets_data:
                 res_df = pd.DataFrame(assets_data)
+                # 這裡存一份有包含現金的 hist_dict 到 session_state，供 Tab 4 使用
                 st.session_state['res_df'] = res_df 
                 st.session_state['hist_dict'] = hist_dict
+                st.session_state['cash_usd'] = cash_usd
                 
-                total_val = stock_val + cash_val_usd
+                # 分離計算：股票純粹的報酬率 vs 加上現金的總市值
+                total_val = stock_val + cash_usd # 分母：組合總淨值 (股票+現金)
                 stock_pnl = stock_val - stock_cost
                 stock_pnl_pct = (stock_pnl / stock_cost)*100 if stock_cost > 0 else 0
                 pnl_color = "#4ade80" if stock_pnl >= 0 else "#f87171"
@@ -271,16 +275,20 @@ with tab2:
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("股票投入總成本 (USD)", f"${stock_cost:,.2f}")
                 m2.metric("組合總市值含現金 (USD)", f"${total_val:,.2f}")
-                m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">未實現總損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${stock_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
-                m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
+                m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票未實現損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${stock_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
+                m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">純股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
                 
+                # 這裡輸出的表格，只有股票，非常乾淨！
                 styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.4f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
                 st.markdown(styled_table, unsafe_allow_html=True)
 
                 hist_df = pd.DataFrame(hist_dict).dropna() 
                 ret_df = hist_df.pct_change().dropna() 
-                corr_matrix = ret_df.corr() 
+                
+                # 為了畫熱力圖，先把 CASH 拿掉，我們不需要看現金的相關性
+                corr_matrix = ret_df.drop(columns=['CASH (TWD)']).corr() 
 
+                # 計算組合整體風險與表現 (包含現金的避險效果)
                 weights = []
                 weighted_beta, portfolio_return = 0, 0
                 for idx, row in res_df.iterrows():
@@ -288,8 +296,11 @@ with tab2:
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
-                    if row['股票'] != 'CASH (TWD)':
-                        portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
+                    portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
+                
+                # 現金的權重
+                cash_w = cash_usd / total_val if total_val > 0 else 0
+                weights.append(cash_w) # 加進總權重 list
 
                 port_daily_ret = ret_df.dot(weights)
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
@@ -307,10 +318,9 @@ with tab2:
                 st.divider()
 
                 eval_color = "#60a5fa"
-                eval_title = "組合分析完成"
                 st.markdown(f"""
                     <div class="report-card" style="border-left: 10px solid {eval_color};">
-                        <h3 style="color: {eval_color}; margin:0;">AI 綜合診斷報告</h3>
+                        <h3 style="color: {eval_color}; margin:0;">AI 綜合診斷報告 (已將現金部位納入風險評估)</h3>
                         <p style="margin-top:20px; font-size:18px; line-height:1.7;">
                             <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
                             <b>Jensen's Alpha：</b><span style='color: {"#4ade80" if jensen_alpha > 0 else "#f87171"}; font-weight: bold;'>{jensen_alpha*100:+.2f}%</span><br>
@@ -323,9 +333,13 @@ with tab2:
                     </div>
                 """, unsafe_allow_html=True)
                 
+                # 為了圓餅圖能顯示現金，我們建一個包含現金的 df 畫圖
+                pie_df = res_df.copy()
+                pie_df = pd.concat([pie_df, pd.DataFrame([{"股票": "CASH (TWD)", "目前市值": cash_usd}])], ignore_index=True)
+
                 c_pie, c_heat = st.columns(2)
-                c_pie.plotly_chart(px.pie(res_df, values='權重', names='股票', hole=0.4, title="真實市值權重配比", template="plotly_dark"), use_container_width=True)
-                fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="資產相關性熱力圖")
+                c_pie.plotly_chart(px.pie(pie_df, values='目前市值', names='股票', hole=0.4, title="真實資產權重配比 (含現金)", template="plotly_dark"), use_container_width=True)
+                fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="股票資產相關性熱力圖")
                 c_heat.plotly_chart(fig_heat, use_container_width=True)
 
 # --- Tab 3: 期末報告專用 (已修正權重限制 5% ~ 45%) ---
@@ -430,27 +444,31 @@ with tab4:
     if 'hist_dict' in st.session_state and 'res_df' in st.session_state:
         res_df = st.session_state['res_df']
         hist_dict = st.session_state['hist_dict']
+        cash_usd = st.session_state.get('cash_usd', 0)
         
-        total_val = res_df['目前市值'].sum()
-        weights = (res_df['目前市值'] / total_val).values
+        # 總值包含現金
+        total_val = res_df['目前市值'].sum() + cash_usd
         
-        # 處理回測時，如果有 CASH 要確保長度一致
+        # 取得股票權重
+        weights = (res_df['目前市值'] / total_val).tolist()
+        
+        # 加入現金權重
+        cash_w = cash_usd / total_val if total_val > 0 else 0
+        weights.append(cash_w)
+        
+        # 處理回測時，CASH 的歷史不變數據
         clean_hist_dict = {}
         for k, v in hist_dict.items():
             if v is not None:
-                if k == "CASH (TWD)":
-                    valid_series = next((val for key, val in hist_dict.items() if key != "CASH (TWD)" and val is not None), None)
-                    if valid_series is not None:
-                        clean_hist_dict[k] = pd.Series(1.0, index=valid_series.index)
-                else:
-                    clean_hist_dict[k] = v
+                clean_hist_dict[k] = v
                     
         ret_df = pd.DataFrame(clean_hist_dict).pct_change().dropna()
         
+        # 算矩陣乘積畫圖
         port_cum_ret = (1 + ret_df.dot(weights)).cumprod()
         
         fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=port_cum_ret.index, y=port_cum_ret, name='你的真實投資組合', line=dict(color='#4ade80', width=2.5)))
+        fig_bt.add_trace(go.Scatter(x=port_cum_ret.index, y=port_cum_ret, name='你的真實投資組合(含現金避險)', line=dict(color='#4ade80', width=2.5)))
         
         if spy_h is not None and not spy_h.empty:
             spy_cum_ret = (1 + spy_h['Close'].pct_change().dropna()).cumprod()
