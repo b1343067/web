@@ -102,6 +102,7 @@ st.markdown("""
     .report-card { padding: 30px; border-radius: 15px; margin-bottom: 25px; border: 1px solid #334155; background-color: #1e293b; }
     .prescription-box { padding: 15px; border-radius: 10px; background-color: rgba(96, 165, 250, 0.1); border-left: 5px solid #60a5fa; margin-top: 15px; }
     .ttest-box { padding: 15px; border-radius: 10px; background-color: rgba(167, 139, 250, 0.1); border-left: 5px solid #a78bfa; margin-top: 15px; }
+    .scenario-box { padding: 15px; border-radius: 10px; background-color: rgba(74, 222, 128, 0.05); border: 1px solid #334155; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -183,14 +184,14 @@ with tab1:
             else:
                 st.error("⚠️ 無法取得該標的數據。")
 
-# --- 持倉預設值 (移除 CASH，確保表格內只有純股票) ---
+# --- 持倉預設值 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
         {"代號": "VOO",   "持有股數": 10,  "平均成本": 450.00},
         {"代號": "BRK.B", "持有股數": 15,  "平均成本": 400.00},
         {"代號": "GOOGL", "持有股數": 30,  "平均成本": 130.00},
         {"代號": "NVDA",  "持有股數": 10,  "平均成本": 100.00},
-        {"代號": "2330",  "持有股數": 200, "平均成本": 700.00}
+        {"代號": "PLTR",  "持有股數": 15,  "平均成本": 35.00}
     ])
 
 # --- Tab 2: 完整投資組合診斷 ---
@@ -200,7 +201,6 @@ with tab2:
         return f'color: {color} !important; font-weight: bold;'
 
     st.markdown("### 💰 資金水位管理")
-    # 獨立的現金輸入框，預設給 5 萬台幣
     cash_twd = st.number_input("💵 目前閒置現金 (台幣 TWD)", min_value=0.0, value=50000.0, step=1000.0)
     st.markdown("---")
     
@@ -211,20 +211,16 @@ with tab2:
         st.session_state.portfolio_df = edited
         with st.spinner('AI 正在運算數據中...'):
             assets_data, hist_dict = [], {}
-            stock_cost = 0
-            stock_val = 0
-            tech_count = 0
+            stock_cost, stock_val, tech_count = 0, 0, 0
             tech_tickers = ['QQQ', 'QQQM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'PLTR', 'ARKF', 'SMH', 'AAOI', '2330.TW', '2330']
             failed_tickers = [] 
             
-            # 抓取即時匯率
             usd_twd_rate = 32.2 
             try:
                 rate_data = yf.Ticker("TWD=X").history(period="1d")
                 if not rate_data.empty: usd_twd_rate = rate_data['Close'].iloc[-1]
             except: pass
             
-            # 台幣現金換算成美元
             cash_usd = cash_twd / usd_twd_rate
 
             for _, row in edited.iterrows():
@@ -250,7 +246,6 @@ with tab2:
                 else:
                     failed_tickers.append(raw_ticker)
             
-            # 填補現金歷史數據佔位符 (為了後面算 MDD 和組合 Beta)
             valid_idx = next((v.index for v in hist_dict.values() if v is not None), None)
             hist_dict["CASH (TWD)"] = pd.Series(1.0, index=valid_idx) if valid_idx is not None else pd.Series([1.0, 1.0])
 
@@ -259,18 +254,16 @@ with tab2:
 
             if assets_data:
                 res_df = pd.DataFrame(assets_data)
-                # 這裡存一份有包含現金的 hist_dict 到 session_state，供 Tab 4 使用
                 st.session_state['res_df'] = res_df 
                 st.session_state['hist_dict'] = hist_dict
                 st.session_state['cash_usd'] = cash_usd
                 
-                # 分離計算：股票純粹的報酬率 vs 加上現金的總市值
-                total_val = stock_val + cash_usd # 分母：組合總淨值 (股票+現金)
+                total_val = stock_val + cash_usd 
                 stock_pnl = stock_val - stock_cost
                 stock_pnl_pct = (stock_pnl / stock_cost)*100 if stock_cost > 0 else 0
                 pnl_color = "#4ade80" if stock_pnl >= 0 else "#f87171"
                 
-                st.info(f"💱 目前即時匯率：1 USD = {usd_twd_rate:.2f} TWD (台幣現金已自動轉換為美元計價)")
+                st.info(f"💱 目前即時匯率：1 USD = {usd_twd_rate:.2f} TWD")
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("股票投入總成本 (USD)", f"${stock_cost:,.2f}")
@@ -278,40 +271,87 @@ with tab2:
                 m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票未實現損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${stock_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
                 m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">純股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
                 
-                # 這裡輸出的表格，只有股票，非常乾淨！
-                styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.4f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
+                styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
                 st.markdown(styled_table, unsafe_allow_html=True)
 
                 hist_df = pd.DataFrame(hist_dict).dropna() 
                 ret_df = hist_df.pct_change().dropna() 
-                
-                # 為了畫熱力圖，先把 CASH 拿掉，我們不需要看現金的相關性
                 corr_matrix = ret_df.drop(columns=['CASH (TWD)']).corr() 
 
-                # 計算組合整體風險與表現 (包含現金的避險效果)
                 weights = []
                 weighted_beta, portfolio_return = 0, 0
                 for idx, row in res_df.iterrows():
-                    w = row["目前市值"] / total_val if total_val > 0 else 0
+                    w = row["currently_val" if "currently_val" in row else "目前市值"] / total_val if total_val > 0 else 0
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
                     portfolio_return += hist_df[row['股票']].pct_change(252).iloc[-1] * w
                 
-                # 現金的權重
                 cash_w = cash_usd / total_val if total_val > 0 else 0
-                weights.append(cash_w) # 加進總權重 list
+                weights.append(cash_w) 
 
                 port_daily_ret = ret_df.dot(weights)
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
+
+                # ==========================================
+                # 🌟 老師要求：直接在第二頁同步執行最高夏普值規劃求解 🌟
+                # ==========================================
+                tickers = res_df['股票'].tolist()
+                price_df_opt = pd.DataFrame({t: hist_dict[t] for t in tickers}).dropna()
+                ret_df_opt = price_df_opt.pct_change().dropna()
+                cov_matrix_opt = ret_df_opt.cov().values * 252
+                
+                mean_returns_opt = []
+                for col in tickers:
+                    beta_val = res_df[res_df['股票'] == col]['Beta'].values[0]
+                    mean_returns_opt.append(rf_rate + beta_val * (expected_market_ret - rf_rate))
+                mean_returns_opt = np.array(mean_returns_opt)
+                
+                def neg_sharpe_opt(w_opt, m_ret, c_mat, rf):
+                    p_ret = np.sum(m_ret * w_opt)
+                    p_std = np.sqrt(np.dot(w_opt.T, np.dot(c_mat, w_opt)))
+                    return -(p_ret - rf) / (p_std + 1e-9)
+                
+                num_assets = len(tickers)
+                constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+                bounds = tuple((0.05, 0.45) for _ in range(num_assets))
+                init_guess = num_assets * [1./num_assets,]
+                opt_res = minimize(neg_sharpe_opt, init_guess, args=(mean_returns_opt, cov_matrix_opt, rf_rate), method='SLSQP', bounds=bounds, constraints=constraints)
+                opt_weights = opt_res.x
+                
+                # 計算最佳化組合預期年化指標
+                opt_port_ret = np.sum(mean_returns_opt * opt_weights)
+                opt_port_std = np.sqrt(np.dot(opt_weights.T, np.dot(cov_matrix_opt, opt_weights)))
+                
+                # 建立對比資料表
+                opt_compare_list = []
+                for idx, t in enumerate(tickers):
+                    current_w = res_df[res_df['股票'] == t]['權重'].values[0]
+                    opt_compare_list.append({
+                        "資產代號": t,
+                        "現有權重": f"{current_w:.2%}",
+                        "目標最佳權重(最高夏普)": f"{opt_weights[idx]:.2%}",
+                        "建議調整方向": "🟢 逢低加碼" if opt_weights[idx] > current_w else "🔴 逢高減碼"
+                    })
+                df_opt_compare = pd.DataFrame(opt_compare_list)
+
+                # ==========================================
+                # 🌟 壓力測試 (Scenario Analysis) 與 再平衡金額計算 🌟
+                # ==========================================
+                # 市場常態狀況 (未來1年預期價值)
+                normal_val = total_val * (1 + opt_port_ret)
+                # 市場極端樂觀 (牛市前5%概率，Z=1.65)
+                bull_val = total_val * (1 + opt_port_ret + 1.65 * opt_port_std)
+                # 市場極端悲觀 (熊市後5%概率，Z=1.65)
+                bear_val = total_val * (1 + opt_port_ret - 1.65 * opt_port_std)
 
                 if spy_h is not None and not spy_h.empty:
                     spy_daily_returns = spy_h['Close'].pct_change().dropna()
                     aligned = pd.DataFrame({'Port': port_daily_ret, 'SPY': spy_daily_returns}).dropna()
                     if not aligned.empty:
                         t_stat, p_value = stats.ttest_ind(aligned['Port'], aligned['SPY'], equal_var=False)
-                        ttest_result = f"P-value 為 {p_value:.4f} < 0.05。<br><span style='color:#4ade80;'>✅ 拒絕虛無假說，此組合與大盤有**統計顯著差異**。</span>" if p_value < 0.05 else f"P-value 為 {p_value:.4f} >= 0.05。<br><span style='color:#fbbf24;'>⚠️ 無法拒絕虛無假說，超額表現可能為隨機。</span>"
+                        ttest_result = f"P-value 為 {p_value:.4f} < 0.05。<br><span style='color:#4ade80;'>✅ 拒絕虛無假說，此組合與大盤有**統計顯著差異**。</span>" if p_value < 0.05 else f"P-value 為 {p_value:.4f} >= 0.05。<br><span style='color:#fbbf24;'>⚠️ 無法拒絕虛無假說。</span>"
                     else: t_stat, ttest_result = 0, "無足夠數據"
                 else: t_stat, ttest_result = 0, "無大盤數據"
 
@@ -333,7 +373,28 @@ with tab2:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 為了圓餅圖能顯示現金，我們建一個包含現金的 df 畫圖
+                # 🌟 新增：最佳化分配權重對比表 🌟
+                st.markdown("### 🏆 老師要求項目：最高夏普值資產配置對比")
+                st.dataframe(df_opt_compare, use_container_width=True)
+                
+                # 🌟 新增：市場好/壞壓力測試與動態再平衡機制 🌟
+                st.markdown("### 📊 未來 1 年市場極端情境預估 (壓力測試)")
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("🐂 市場極端樂觀 (牛市景氣)", f"${bull_val:,.2f}", "+ 1.65 Std Dev")
+                sc2.metric("📊 市場常態狀況 (平穩景氣)", f"${normal_val:,.2f}", "CAPM 預期值")
+                sc3.metric("🐻 市場極端悲觀 (熊市風暴)", f"${bear_val:,.2f}", "- 1.65 Std Dev")
+                
+                st.markdown(f"""
+                <div class="report-card" style="border-top: 4px solid #fbbf24; background-color: #1e293b; padding: 20px; margin-top: 15px;">
+                    <h4 style="color:#fbbf24; margin:0; font-size: 18px;">🔄 基金經理人動態再平衡門檻策略 (Rebalancing Rule)</h4>
+                    <p style="font-size:16px; line-height:1.6; margin-top:10px; color:#cbd5e1 !important;">
+                        為了維持投組在<b>最高夏普值</b>的完美防禦狀態，本系統設定以下<b>動態再平衡風控制度</b>：<br>
+                        1️⃣ <b>權重偏離門檻</b>：當任一股票的「現有權重」與「目標最佳權重」絕對偏差<b>超過 ±5%</b> 時（例如 VOO 偏離至 50% 或跌破 40%），系統將發出交易警報。<br>
+                        2️⃣ <b>資產重新分配點</b>：當投資組合總價值達到 <b>${bull_val:,.2f}</b> (獲利結清點) 或跌破 <b>${bear_val:,.2f}</b> (資產防禦點) 時，必須強制將所有股票部位賣出重組，將資金調回上方表格推薦之目標比例，以鎖定利潤、控制最大回撤。
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 pie_df = res_df.copy()
                 pie_df = pd.concat([pie_df, pd.DataFrame([{"股票": "CASH (TWD)", "目前市值": cash_usd}])], ignore_index=True)
 
@@ -349,7 +410,6 @@ with tab3:
     
     if st.button("🚀 產出期末報告分析數據"):
         if 'res_df' in st.session_state and 'hist_dict' in st.session_state:
-            # 1. 排除 CASH，只留下純股票資產
             stock_df = st.session_state['res_df'][st.session_state['res_df']['股票'] != 'CASH (TWD)']
             tickers = stock_df['股票'].tolist()
             
@@ -368,7 +428,6 @@ with tab3:
                 past_ret = daily_ret.mean() * 252
                 past_std = daily_ret.std() * np.sqrt(252)
                 
-                # 計算單獨 Beta
                 if spy_daily is not None:
                     aligned = pd.concat([daily_ret, spy_daily], axis=1).dropna()
                     cov_mat = np.cov(aligned.iloc[:,0], aligned.iloc[:,1])
@@ -377,7 +436,7 @@ with tab3:
                 
                 past_sharpe = (past_ret - rf_rate) / past_std if past_std != 0 else 0
                 future_ret = rf_rate + beta * (expected_market_ret - rf_rate)
-                future_std = past_std # 假設波動度不變
+                future_std = past_std 
                 future_sharpe = (future_ret - rf_rate) / future_std if future_std != 0 else 0
                 
                 ind_stats.append({
@@ -389,7 +448,6 @@ with tab3:
             mean_returns = df_ind.set_index("標的")["預期未來1年報酬率(CAPM)"].values
             cov_matrix = ret_df.cov().values * 252 
             
-            # Scipy 最佳化
             def neg_sharpe(weights, mean_ret, cov_mat, rf):
                 p_ret = np.sum(mean_ret * weights)
                 p_std = np.sqrt(np.dot(weights.T, np.dot(cov_mat, weights)))
@@ -397,16 +455,12 @@ with tab3:
 
             num_assets = len(tickers)
             constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-            
-            # 💡 實務修正：設定權重上下限 (最少 5%，最多 45%)
             bounds = tuple((0.05, 0.45) for _ in range(num_assets))
-            
             init_guess = num_assets * [1./num_assets,]
             
             opt_res = minimize(neg_sharpe, init_guess, args=(mean_returns, cov_matrix, rf_rate), method='SLSQP', bounds=bounds, constraints=constraints)
             opt_weights = opt_res.x
             
-            # 組合表現計算
             port_future_ret = np.sum(mean_returns * opt_weights)
             port_future_std = np.sqrt(np.dot(opt_weights.T, np.dot(cov_matrix, opt_weights)))
             port_future_sharpe = (port_future_ret - rf_rate) / port_future_std
@@ -446,25 +500,18 @@ with tab4:
         hist_dict = st.session_state['hist_dict']
         cash_usd = st.session_state.get('cash_usd', 0)
         
-        # 總值包含現金
         total_val = res_df['目前市值'].sum() + cash_usd
-        
-        # 取得股票權重
         weights = (res_df['目前市值'] / total_val).tolist()
         
-        # 加入現金權重
         cash_w = cash_usd / total_val if total_val > 0 else 0
         weights.append(cash_w)
         
-        # 處理回測時，CASH 的歷史不變數據
         clean_hist_dict = {}
         for k, v in hist_dict.items():
             if v is not None:
                 clean_hist_dict[k] = v
                     
         ret_df = pd.DataFrame(clean_hist_dict).pct_change().dropna()
-        
-        # 算矩陣乘積畫圖
         port_cum_ret = (1 + ret_df.dot(weights)).cumprod()
         
         fig_bt = go.Figure()
