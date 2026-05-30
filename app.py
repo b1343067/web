@@ -12,12 +12,27 @@ import scipy.stats as stats
 from scipy.optimize import minimize
 
 # ==========================================
-# 1. 核心量化引擎 (強化防擋機制 + MACD)
+# 1. 核心量化引擎 (強化防擋機制 + 智能辨識)
 # ==========================================
 def format_ticker(ticker):
-    t = str(ticker).upper().replace("/", "-").replace(".", "-").strip()
-    if t.isdigit() and len(t) == 4: return t + ".TW"
-    if t == "BRK.B" or t == "BRK/B": return "BRK-B"
+    t = str(ticker).upper().strip()
+    
+    # 1. 處理美股特殊代號 (波克夏)
+    if t in ["BRK.B", "BRK/B", "BRK_B"]: 
+        return "BRK-B"
+    
+    # 2. 智能辨識：4位數字 -> 自動加 .TW (台股)
+    if t.isdigit() and len(t) == 4: 
+        return t + ".TW"
+        
+    # 3. 智能辨識：6位數字 -> 自動判斷 A 股 (上海 .SS / 深圳 .SZ)
+    if t.isdigit() and len(t) == 6:
+        if t.startswith('60') or t.startswith('68'):
+            return t + ".SS"  # 上證 / 科創板
+        elif t.startswith('00') or t.startswith('30'):
+            return t + ".SZ"  # 深證 / 創業板
+            
+    # 4. 正常美股或使用者已自行加上後綴的代號，直接放行
     return t
 
 @st.cache_data(ttl=3600)
@@ -145,7 +160,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 AI 市場診斷", "🛡️ 現有�
 # --- Tab 1: AI 診斷 ---
 with tab1:
     col_in, _ = st.columns([2, 2])
-    raw_ticker = col_in.text_input("輸入股票代號 (美股如 NVDA / 台股如 2330)", "2330")
+    raw_ticker = col_in.text_input("輸入股票代號 (美/台/A股皆可)", "2330")
     
     if raw_ticker:
         with st.spinner('正在掃描技術指標與動能...'):
@@ -208,7 +223,7 @@ with tab2:
     st.markdown("### 📈 現有股票持倉")
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
-    # 【架構調整】按下按鈕時，只負責純運算並把結果存進 session_state 保險箱
+    # 按下按鈕時，只負責純運算並把結果存進 session_state 保險箱
     if st.button("🚀 執行 AI 量化診斷"):
         st.session_state.portfolio_df = edited
         with st.spinner('AI 正在運算數據中...'):
