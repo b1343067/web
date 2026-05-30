@@ -183,9 +183,11 @@ with tab1:
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA10'], line=dict(color='#81d4fa', width=1), name='10MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MA50'], line=dict(color='#fbbf24', width=1.2), name='50MA'), row=1, col=1)
                 
+                # 補回漏掉的 Signal Line (MACD 慢線)
                 macd_colors = ['#4ade80' if val >= 0 else '#f87171' for val in plot_data['MACD_Hist']]
                 fig.add_trace(go.Bar(x=str_dates, y=plot_data['MACD_Hist'], marker_color=macd_colors, name='MACD 柱狀圖'), row=2, col=1)
-                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['MACD'], line=dict(color='#60a5fa', width=1.5), name='MACD (12,26)'), row=2, col=1)
+                fig.add_trace(go.Scatter(x=str_dates, y=plot_data['Signal_Line'], line=dict(color='#fbbf24', width=1.5), name='Signal (9)'), row=2, col=1)
                 
                 fig.update_layout(template="plotly_dark", height=600, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0))
                 fig.update_xaxes(type='category', nticks=10, rangeslider_visible=False)
@@ -199,7 +201,7 @@ with tab1:
             else:
                 st.error("⚠️ 無法取得該標的數據。")
 
-# --- 持倉預設值 (更新為截圖中的配置) ---
+# --- 持倉預設值 ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
         {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.00},
