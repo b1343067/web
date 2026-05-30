@@ -281,7 +281,7 @@ with tab2:
                 weights = []
                 weighted_beta, portfolio_return = 0, 0
                 for idx, row in res_df.iterrows():
-                    w = row["currently_val" if "currently_val" in row else "目前市值"] / total_val if total_val > 0 else 0
+                    w = row["目前市值"] / total_val if total_val > 0 else 0
                     weights.append(w)
                     res_df.at[idx, '權重'] = w
                     weighted_beta += row["Beta"] * w
@@ -295,7 +295,7 @@ with tab2:
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
                 # ==========================================
-                # 🌟 老師要求：直接在第二頁同步執行最高夏普值規劃求解 🌟
+                # 🌟 最高夏普值規劃求解 (優化交易金額邏輯) 🌟
                 # ==========================================
                 tickers = res_df['股票'].tolist()
                 price_df_opt = pd.DataFrame({t: hist_dict[t] for t in tickers}).dropna()
@@ -320,30 +320,33 @@ with tab2:
                 opt_res = minimize(neg_sharpe_opt, init_guess, args=(mean_returns_opt, cov_matrix_opt, rf_rate), method='SLSQP', bounds=bounds, constraints=constraints)
                 opt_weights = opt_res.x
                 
-                # 計算最佳化組合預期年化指標
                 opt_port_ret = np.sum(mean_returns_opt * opt_weights)
                 opt_port_std = np.sqrt(np.dot(opt_weights.T, np.dot(cov_matrix_opt, opt_weights)))
                 
-                # 建立對比資料表
+                # 建立對比資料表 (新增精準建議交易金額)
                 opt_compare_list = []
                 for idx, t in enumerate(tickers):
-                    current_w = res_df[res_df['股票'] == t]['權重'].values[0]
+                    # ⚠️ 關鍵修正：只重分配「股票總值」，不碰觸現金部位
+                    current_w_in_stocks = res_df[res_df['股票'] == t]['目前市值'].values[0] / stock_val if stock_val > 0 else 0
+                    current_amt = res_df[res_df['股票'] == t]['目前市值'].values[0]
+                    target_amt = stock_val * opt_weights[idx]
+                    diff = target_amt - current_amt
+                    
+                    action_str = f"🟢 買入加碼 ${diff:,.2f}" if diff > 0 else f"🔴 賣出停利 ${abs(diff):,.2f}"
+
                     opt_compare_list.append({
                         "資產代號": t,
-                        "現有權重": f"{current_w:.2%}",
-                        "目標最佳權重(最高夏普)": f"{opt_weights[idx]:.2%}",
-                        "建議調整方向": "🟢 逢低加碼" if opt_weights[idx] > current_w else "🔴 逢高減碼"
+                        "現有權重(僅計股票)": f"{current_w_in_stocks:.2%}",
+                        "目標最佳權重": f"{opt_weights[idx]:.2%}",
+                        "建議交易動作 (USD)": action_str
                     })
                 df_opt_compare = pd.DataFrame(opt_compare_list)
 
                 # ==========================================
-                # 🌟 壓力測試 (Scenario Analysis) 與 再平衡金額計算 🌟
+                # 🌟 壓力測試與動態再平衡 🌟
                 # ==========================================
-                # 市場常態狀況 (未來1年預期價值)
                 normal_val = total_val * (1 + opt_port_ret)
-                # 市場極端樂觀 (牛市前5%概率，Z=1.65)
                 bull_val = total_val * (1 + opt_port_ret + 1.65 * opt_port_std)
-                # 市場極端悲觀 (熊市後5%概率，Z=1.65)
                 bear_val = total_val * (1 + opt_port_ret - 1.65 * opt_port_std)
 
                 if spy_h is not None and not spy_h.empty:
@@ -373,27 +376,9 @@ with tab2:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # 🌟 新增：最佳化分配權重對比表 🌟
-                st.markdown("### 🏆 老師要求項目：最高夏普值資產配置對比")
+                st.markdown("### 🏆 老師要求項目：最高夏普值資產配置對比 (精準交易建議)")
+                st.info("系統已將『現金池』獨立計算，下列建議金額僅會重分配您的【股票總市值】，不會動用備用現金。")
                 st.dataframe(df_opt_compare, use_container_width=True)
-                
-                # 🌟 新增：市場好/壞壓力測試與動態再平衡機制 🌟
-                st.markdown("### 📊 未來 1 年市場極端情境預估 (壓力測試)")
-                sc1, sc2, sc3 = st.columns(3)
-                sc1.metric("🐂 市場極端樂觀 (牛市景氣)", f"${bull_val:,.2f}", "+ 1.65 Std Dev")
-                sc2.metric("📊 市場常態狀況 (平穩景氣)", f"${normal_val:,.2f}", "CAPM 預期值")
-                sc3.metric("🐻 市場極端悲觀 (熊市風暴)", f"${bear_val:,.2f}", "- 1.65 Std Dev")
-                
-                st.markdown(f"""
-                <div class="report-card" style="border-top: 4px solid #fbbf24; background-color: #1e293b; padding: 20px; margin-top: 15px;">
-                    <h4 style="color:#fbbf24; margin:0; font-size: 18px;">🔄 基金經理人動態再平衡門檻策略 (Rebalancing Rule)</h4>
-                    <p style="font-size:16px; line-height:1.6; margin-top:10px; color:#cbd5e1 !important;">
-                        為了維持投組在<b>最高夏普值</b>的完美防禦狀態，本系統設定以下<b>動態再平衡風控制度</b>：<br>
-                        1️⃣ <b>權重偏離門檻</b>：當任一股票的「現有權重」與「目標最佳權重」絕對偏差<b>超過 ±5%</b> 時（例如 VOO 偏離至 50% 或跌破 40%），系統將發出交易警報。<br>
-                        2️⃣ <b>資產重新分配點</b>：當投資組合總價值達到 <b>${bull_val:,.2f}</b> (獲利結清點) 或跌破 <b>${bear_val:,.2f}</b> (資產防禦點) 時，必須強制將所有股票部位賣出重組，將資金調回上方表格推薦之目標比例，以鎖定利潤、控制最大回撤。
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
                 
                 pie_df = res_df.copy()
                 pie_df = pd.concat([pie_df, pd.DataFrame([{"股票": "CASH (TWD)", "目前市值": cash_usd}])], ignore_index=True)
@@ -402,6 +387,51 @@ with tab2:
                 c_pie.plotly_chart(px.pie(pie_df, values='目前市值', names='股票', hole=0.4, title="真實資產權重配比 (含現金)", template="plotly_dark"), use_container_width=True)
                 fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="股票資產相關性熱力圖")
                 c_heat.plotly_chart(fig_heat, use_container_width=True)
+                
+                # ==========================================
+                # 🌟 新增：未來財富增長推演 (定期定額複利引擎) 🌟
+                # ==========================================
+                st.divider()
+                st.markdown("### 🚀 未來財富增長推演 (定期定額與複利效應)")
+                st.markdown("基於 CAPM 預期最佳化年化報酬率，並排除極端黑天鵝事件的資產成長模擬。")
+                
+                c_proj1, c_proj2 = st.columns(2)
+                invest_years = c_proj1.slider("預計持續投資年限", min_value=1, max_value=40, value=10)
+                monthly_twd = c_proj2.number_input("每月定期定額投入 (台幣 TWD)", min_value=0, value=10000, step=1000)
+
+                monthly_usd = monthly_twd / usd_twd_rate
+                # 以最佳化報酬率作為預期成長率 (最少設定為無風險利率 4% 以防系統算出版塊衰退導致負成長)
+                expected_annual_rate = max(opt_port_ret, 0.04) 
+
+                future_data = []
+                current_capital = total_val
+                total_invested = total_val
+
+                for y in range(1, invest_years + 1):
+                    # 按月複利計算
+                    for m in range(12):
+                        current_capital = current_capital * (1 + expected_annual_rate/12) + monthly_usd
+                        total_invested += monthly_usd
+
+                    future_data.append({
+                        "年度": f"第 {y} 年",
+                        "總投入本金 (USD)": total_invested,
+                        "預估總資產市值 (USD)": current_capital
+                    })
+
+                df_future = pd.DataFrame(future_data)
+
+                fig_proj = go.Figure()
+                fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["預估總資產市值 (USD)"], fill='tozeroy', name="預估總市值", line=dict(color='#4ade80')))
+                fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["總投入本金 (USD)"], name="總投入本金", line=dict(color='#94a3b8', dash='dash')))
+                fig_proj.update_layout(template="plotly_dark", title=f"資產成長預測 (假設年化報酬率 {expected_annual_rate:.2%})", height=400, margin=dict(l=0,r=0,t=40,b=0))
+
+                st.plotly_chart(fig_proj, use_container_width=True)
+
+                final_val_usd = future_data[-1]["預估總資產市值 (USD)"]
+                final_val_twd = final_val_usd * usd_twd_rate
+                st.success(f"💡 經過 **{invest_years}** 年的紀律投資，在沒有極端黑天鵝的情況下，您的資產預估將成長至 **${final_val_usd:,.2f} USD** (約合台幣 **{final_val_twd:,.0f} TWD**)。")
+
 
 # --- Tab 3: 期末報告專用 (已修正權重限制 5% ~ 45%) ---
 with tab3:
