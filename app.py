@@ -184,14 +184,15 @@ with tab1:
             else:
                 st.error("⚠️ 無法取得該標的數據。")
 
-# --- 持倉預設值 ---
+# --- 持倉預設值 (更新為截圖中的配置) ---
 if "portfolio_df" not in st.session_state:
     st.session_state.portfolio_df = pd.DataFrame([
-        {"代號": "VOO",   "持有股數": 10,  "平均成本": 450.00},
-        {"代號": "BRK.B", "持有股數": 15,  "平均成本": 400.00},
-        {"代號": "GOOGL", "持有股數": 30,  "平均成本": 130.00},
-        {"代號": "NVDA",  "持有股數": 10,  "平均成本": 100.00},
-        {"代號": "PLTR",  "持有股數": 15,  "平均成本": 35.00}
+        {"代號": "VOO",   "持有股數": 9,  "平均成本": 632.00},
+        {"代號": "BRK.B", "持有股數": 6,  "平均成本": 475.00},
+        {"代號": "NMR",   "持有股數": 30, "平均成本": 9.50},
+        {"代號": "JPM",   "持有股數": 3,  "平均成本": 308.00},
+        {"代號": "PLTR",  "持有股數": 6,  "平均成本": 157.00},
+        {"代號": "ARKF",  "持有股數": 10, "平均成本": 48.30}
     ])
 
 # --- Tab 2: 完整投資組合診斷 ---
@@ -207,6 +208,7 @@ with tab2:
     st.markdown("### 📈 現有股票持倉")
     edited = st.data_editor(st.session_state.portfolio_df, num_rows="dynamic", use_container_width=True)
     
+    # 【架構調整】按下按鈕時，只負責純運算並把結果存進 session_state 保險箱
     if st.button("🚀 執行 AI 量化診斷"):
         st.session_state.portfolio_df = edited
         with st.spinner('AI 正在運算數據中...'):
@@ -254,26 +256,13 @@ with tab2:
 
             if assets_data:
                 res_df = pd.DataFrame(assets_data)
-                st.session_state['res_df'] = res_df 
-                st.session_state['hist_dict'] = hist_dict
-                st.session_state['cash_usd'] = cash_usd
                 
+                # --- 計算 UI 所需的所有變數 ---
                 total_val = stock_val + cash_usd 
                 stock_pnl = stock_val - stock_cost
                 stock_pnl_pct = (stock_pnl / stock_cost)*100 if stock_cost > 0 else 0
                 pnl_color = "#4ade80" if stock_pnl >= 0 else "#f87171"
                 
-                st.info(f"💱 目前即時匯率：1 USD = {usd_twd_rate:.2f} TWD")
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("股票投入總成本 (USD)", f"${stock_cost:,.2f}")
-                m2.metric("組合總市值含現金 (USD)", f"${total_val:,.2f}")
-                m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票未實現損益</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">${stock_pnl:+,.2f}</div></div>""", unsafe_allow_html=True)
-                m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">純股票投資報酬率</div><div style="color: {pnl_color}; font-size: 32px; font-weight: bold;">{stock_pnl_pct:+.2f}%</div></div>""", unsafe_allow_html=True)
-                
-                styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
-                st.markdown(styled_table, unsafe_allow_html=True)
-
                 hist_df = pd.DataFrame(hist_dict).dropna() 
                 ret_df = hist_df.pct_change().dropna() 
                 corr_matrix = ret_df.drop(columns=['CASH (TWD)']).corr() 
@@ -294,9 +283,7 @@ with tab2:
                 port_mdd = calculate_mdd((1 + port_daily_ret).cumprod())
                 jensen_alpha = portfolio_return - (rf_rate + weighted_beta * (spy_ret - rf_rate))
 
-                # ==========================================
-                # 🌟 最高夏普值規劃求解 (優化交易金額邏輯) 🌟
-                # ==========================================
+                # --- 最高夏普值規劃求解 ---
                 tickers = res_df['股票'].tolist()
                 price_df_opt = pd.DataFrame({t: hist_dict[t] for t in tickers}).dropna()
                 ret_df_opt = price_df_opt.pct_change().dropna()
@@ -304,8 +291,8 @@ with tab2:
                 
                 mean_returns_opt = []
                 for col in tickers:
-                    beta_val = res_df[res_df['股票'] == col]['Beta'].values[0]
-                    mean_returns_opt.append(rf_rate + beta_val * (expected_market_ret - rf_rate))
+                    beta_val_opt = res_df[res_df['股票'] == col]['Beta'].values[0]
+                    mean_returns_opt.append(rf_rate + beta_val_opt * (expected_market_ret - rf_rate))
                 mean_returns_opt = np.array(mean_returns_opt)
                 
                 def neg_sharpe_opt(w_opt, m_ret, c_mat, rf):
@@ -323,17 +310,14 @@ with tab2:
                 opt_port_ret = np.sum(mean_returns_opt * opt_weights)
                 opt_port_std = np.sqrt(np.dot(opt_weights.T, np.dot(cov_matrix_opt, opt_weights)))
                 
-                # 建立對比資料表 (新增精準建議交易金額)
+                # --- 精準交易建議 ---
                 opt_compare_list = []
                 for idx, t in enumerate(tickers):
-                    # ⚠️ 關鍵修正：只重分配「股票總值」，不碰觸現金部位
                     current_w_in_stocks = res_df[res_df['股票'] == t]['目前市值'].values[0] / stock_val if stock_val > 0 else 0
                     current_amt = res_df[res_df['股票'] == t]['目前市值'].values[0]
                     target_amt = stock_val * opt_weights[idx]
                     diff = target_amt - current_amt
-                    
                     action_str = f"🟢 買入加碼 ${diff:,.2f}" if diff > 0 else f"🔴 賣出停利 ${abs(diff):,.2f}"
-
                     opt_compare_list.append({
                         "資產代號": t,
                         "現有權重(僅計股票)": f"{current_w_in_stocks:.2%}",
@@ -342,9 +326,6 @@ with tab2:
                     })
                 df_opt_compare = pd.DataFrame(opt_compare_list)
 
-                # ==========================================
-                # 🌟 壓力測試與動態再平衡 🌟
-                # ==========================================
                 normal_val = total_val * (1 + opt_port_ret)
                 bull_val = total_val * (1 + opt_port_ret + 1.65 * opt_port_std)
                 bear_val = total_val * (1 + opt_port_ret - 1.65 * opt_port_std)
@@ -358,80 +339,126 @@ with tab2:
                     else: t_stat, ttest_result = 0, "無足夠數據"
                 else: t_stat, ttest_result = 0, "無大盤數據"
 
-                st.divider()
+                # 將所有算好的東西存進保險箱
+                st.session_state['res_df'] = res_df 
+                st.session_state['hist_dict'] = hist_dict
+                st.session_state['cash_usd'] = cash_usd
+                st.session_state['diag_results'] = {
+                    'usd_twd_rate': usd_twd_rate,
+                    'stock_cost': stock_cost,
+                    'total_val': total_val,
+                    'stock_pnl': stock_pnl,
+                    'stock_pnl_pct': stock_pnl_pct,
+                    'pnl_color': pnl_color,
+                    'corr_matrix': corr_matrix,
+                    'weighted_beta': weighted_beta,
+                    'jensen_alpha': jensen_alpha,
+                    'port_mdd': port_mdd,
+                    't_stat': t_stat,
+                    'ttest_result': ttest_result,
+                    'df_opt_compare': df_opt_compare,
+                    'normal_val': normal_val,
+                    'bull_val': bull_val,
+                    'bear_val': bear_val,
+                    'opt_port_ret': opt_port_ret
+                }
 
-                eval_color = "#60a5fa"
-                st.markdown(f"""
-                    <div class="report-card" style="border-left: 10px solid {eval_color};">
-                        <h3 style="color: {eval_color}; margin:0;">AI 綜合診斷報告 (已將現金部位納入風險評估)</h3>
-                        <p style="margin-top:20px; font-size:18px; line-height:1.7;">
-                            <b>組合加權 Beta：</b>{weighted_beta:.2f} (市場敏感度)<br>
-                            <b>Jensen's Alpha：</b><span style='color: {"#4ade80" if jensen_alpha > 0 else "#f87171"}; font-weight: bold;'>{jensen_alpha*100:+.2f}%</span><br>
-                            <b>歷史最大回撤 (MDD)：</b><span style='color: #f87171; font-weight: bold;'>{port_mdd*100:.2f}%</span><br>
-                        </p>
-                        <div class="ttest-box">
-                            <strong style="color:#a78bfa; font-size:18px;">🔬 統計顯著性檢定 (Two-Sample T-Test)：</strong><br>
-                            <span style="color:#f1f5f9;"><b>T-Statistic:</b> {t_stat:.4f} <br><b>結論：</b> {ttest_result}</span>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("### 🏆 老師要求項目：最高夏普值資產配置對比 (精準交易建議)")
-                st.info("系統已將『現金池』獨立計算，下列建議金額僅會重分配您的【股票總市值】，不會動用備用現金。")
-                st.dataframe(df_opt_compare, use_container_width=True)
-                
-                pie_df = res_df.copy()
-                pie_df = pd.concat([pie_df, pd.DataFrame([{"股票": "CASH (TWD)", "目前市值": cash_usd}])], ignore_index=True)
+    # =========================================================
+    # 【獨立 UI 渲染區】讀取保險箱，不會被拉桿重新整理刷掉
+    # =========================================================
+    if 'diag_results' in st.session_state:
+        d = st.session_state['diag_results']
+        res_df = st.session_state['res_df']
+        cash_usd = st.session_state['cash_usd']
+        
+        st.info(f"💱 目前即時匯率：1 USD = {d['usd_twd_rate']:.2f} TWD")
 
-                c_pie, c_heat = st.columns(2)
-                c_pie.plotly_chart(px.pie(pie_df, values='目前市值', names='股票', hole=0.4, title="真實資產權重配比 (含現金)", template="plotly_dark"), use_container_width=True)
-                fig_heat = px.imshow(corr_matrix, text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="股票資產相關性熱力圖")
-                c_heat.plotly_chart(fig_heat, use_container_width=True)
-                
-                # ==========================================
-                # 🌟 新增：未來財富增長推演 (定期定額複利引擎) 🌟
-                # ==========================================
-                st.divider()
-                st.markdown("### 🚀 未來財富增長推演 (定期定額與複利效應)")
-                st.markdown("基於 CAPM 預期最佳化年化報酬率，並排除極端黑天鵝事件的資產成長模擬。")
-                
-                c_proj1, c_proj2 = st.columns(2)
-                invest_years = c_proj1.slider("預計持續投資年限", min_value=1, max_value=40, value=10)
-                monthly_twd = c_proj2.number_input("每月定期定額投入 (台幣 TWD)", min_value=0, value=10000, step=1000)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("股票投入總成本 (USD)", f"${d['stock_cost']:,.2f}")
+        m2.metric("組合總市值含現金 (USD)", f"${d['total_val']:,.2f}")
+        m3.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">股票未實現損益</div><div style="color: {d['pnl_color']}; font-size: 32px; font-weight: bold;">${d['stock_pnl']:+,.2f}</div></div>""", unsafe_allow_html=True)
+        m4.markdown(f"""<div style="padding: 15px; border-radius: 10px; border: 1px solid #334155; background-color: #1e293b; text-align: center;"><div style="color: #94a3b8; font-size: 14px; margin-bottom: 5px;">純股票投資報酬率</div><div style="color: {d['pnl_color']}; font-size: 32px; font-weight: bold;">{d['stock_pnl_pct']:+.2f}%</div></div>""", unsafe_allow_html=True)
+        
+        styled_table = res_df[['股票', '即時現價', '總成本', '目前市值', '未實現損益', '報酬率(%)']].style.format({'即時現價': '${:.2f}', '總成本': '${:,.2f}', '目前市值': '${:,.2f}', '未實現損益': '${:+,.2f}', '報酬率(%)': '{:+.2f}%'}).map(color_pnl_cells, subset=['未實現損益', '報酬率(%)']).set_table_styles([{'selector': 'table', 'props': [('width', '100%'), ('background-color', '#1e293b'), ('border-radius', '10px')]}, {'selector': 'th', 'props': [('background-color', '#0f172a'), ('color', '#94a3b8')]}, {'selector': 'td', 'props': [('color', '#f1f5f9')]}]).hide(axis="index").to_html()
+        st.markdown(styled_table, unsafe_allow_html=True)
 
-                monthly_usd = monthly_twd / usd_twd_rate
-                # 以最佳化報酬率作為預期成長率 (最少設定為無風險利率 4% 以防系統算出版塊衰退導致負成長)
-                expected_annual_rate = max(opt_port_ret, 0.04) 
+        st.divider()
 
-                future_data = []
-                current_capital = total_val
-                total_invested = total_val
+        eval_color = "#60a5fa"
+        st.markdown(f"""
+            <div class="report-card" style="border-left: 10px solid {eval_color};">
+                <h3 style="color: {eval_color}; margin:0;">AI 綜合診斷報告 (已將現金部位納入風險評估)</h3>
+                <p style="margin-top:20px; font-size:18px; line-height:1.7;">
+                    <b>組合加權 Beta：</b>{d['weighted_beta']:.2f} (市場敏感度)<br>
+                    <b>Jensen's Alpha：</b><span style='color: {"#4ade80" if d['jensen_alpha'] > 0 else "#f87171"}; font-weight: bold;'>{d['jensen_alpha']*100:+.2f}%</span><br>
+                    <b>歷史最大回撤 (MDD)：</b><span style='color: #f87171; font-weight: bold;'>{d['port_mdd']*100:.2f}%</span><br>
+                </p>
+                <div class="ttest-box">
+                    <strong style="color:#a78bfa; font-size:18px;">🔬 統計顯著性檢定 (Two-Sample T-Test)：</strong><br>
+                    <span style="color:#f1f5f9;"><b>T-Statistic:</b> {d['t_stat']:.4f} <br><b>結論：</b> {d['ttest_result']}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("### 🏆 老師要求項目：最高夏普值資產配置對比 (精準交易建議)")
+        st.info("系統已將『現金池』獨立計算，下列建議金額僅會重分配您的【股票總市值】，不會動用備用現金。")
+        st.dataframe(d['df_opt_compare'], use_container_width=True)
+        
+        st.markdown("### 📊 未來 1 年市場極端情境預估 (壓力測試)")
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("🐂 市場極端樂觀 (牛市景氣)", f"${d['bull_val']:,.2f}", "+ 1.65 Std Dev")
+        sc2.metric("📊 市場常態狀況 (平穩景氣)", f"${d['normal_val']:,.2f}", "CAPM 預期值")
+        sc3.metric("🐻 市場極端悲觀 (熊市風暴)", f"${d['bear_val']:,.2f}", "- 1.65 Std Dev")
+        
+        pie_df = res_df.copy()
+        pie_df = pd.concat([pie_df, pd.DataFrame([{"股票": "CASH (TWD)", "目前市值": cash_usd}])], ignore_index=True)
 
-                for y in range(1, invest_years + 1):
-                    # 按月複利計算
-                    for m in range(12):
-                        current_capital = current_capital * (1 + expected_annual_rate/12) + monthly_usd
-                        total_invested += monthly_usd
+        c_pie, c_heat = st.columns(2)
+        c_pie.plotly_chart(px.pie(pie_df, values='目前市值', names='股票', hole=0.4, title="真實資產權重配比 (含現金)", template="plotly_dark"), use_container_width=True)
+        fig_heat = px.imshow(d['corr_matrix'], text_auto=".2f", aspect="auto", color_continuous_scale='RdBu_r', origin='lower', title="股票資產相關性熱力圖")
+        c_heat.plotly_chart(fig_heat, use_container_width=True)
+        
+        # ==========================================
+        # 🌟 財富增長推演 (解決拉桿消失問題！) 🌟
+        # ==========================================
+        st.divider()
+        st.markdown("### 🚀 未來財富增長推演 (定期定額與複利效應)")
+        st.markdown("基於 CAPM 預期最佳化年化報酬率，並排除極端黑天鵝事件的資產成長模擬。")
+        
+        c_proj1, c_proj2 = st.columns(2)
+        invest_years = c_proj1.slider("預計持續投資年限", min_value=1, max_value=40, value=10)
+        monthly_twd = c_proj2.number_input("每月定期定額投入 (台幣 TWD)", min_value=0, value=10000, step=1000)
 
-                    future_data.append({
-                        "年度": f"第 {y} 年",
-                        "總投入本金 (USD)": total_invested,
-                        "預估總資產市值 (USD)": current_capital
-                    })
+        monthly_usd = monthly_twd / d['usd_twd_rate']
+        expected_annual_rate = max(d['opt_port_ret'], 0.04) 
 
-                df_future = pd.DataFrame(future_data)
+        future_data = []
+        current_capital = d['total_val']
+        total_invested = d['total_val']
 
-                fig_proj = go.Figure()
-                fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["預估總資產市值 (USD)"], fill='tozeroy', name="預估總市值", line=dict(color='#4ade80')))
-                fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["總投入本金 (USD)"], name="總投入本金", line=dict(color='#94a3b8', dash='dash')))
-                fig_proj.update_layout(template="plotly_dark", title=f"資產成長預測 (假設年化報酬率 {expected_annual_rate:.2%})", height=400, margin=dict(l=0,r=0,t=40,b=0))
+        for y in range(1, invest_years + 1):
+            for m in range(12):
+                current_capital = current_capital * (1 + expected_annual_rate/12) + monthly_usd
+                total_invested += monthly_usd
 
-                st.plotly_chart(fig_proj, use_container_width=True)
+            future_data.append({
+                "年度": f"第 {y} 年",
+                "總投入本金 (USD)": total_invested,
+                "預估總資產市值 (USD)": current_capital
+            })
 
-                final_val_usd = future_data[-1]["預估總資產市值 (USD)"]
-                final_val_twd = final_val_usd * usd_twd_rate
-                st.success(f"💡 經過 **{invest_years}** 年的紀律投資，在沒有極端黑天鵝的情況下，您的資產預估將成長至 **${final_val_usd:,.2f} USD** (約合台幣 **{final_val_twd:,.0f} TWD**)。")
+        df_future = pd.DataFrame(future_data)
 
+        fig_proj = go.Figure()
+        fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["預估總資產市值 (USD)"], fill='tozeroy', name="預估總市值", line=dict(color='#4ade80')))
+        fig_proj.add_trace(go.Scatter(x=df_future["年度"], y=df_future["總投入本金 (USD)"], name="總投入本金", line=dict(color='#94a3b8', dash='dash')))
+        fig_proj.update_layout(template="plotly_dark", title=f"資產成長預測 (假設年化報酬率 {expected_annual_rate:.2%})", height=400, margin=dict(l=0,r=0,t=40,b=0))
+
+        st.plotly_chart(fig_proj, use_container_width=True)
+
+        final_val_usd = future_data[-1]["預估總資產市值 (USD)"]
+        final_val_twd = final_val_usd * d['usd_twd_rate']
+        st.success(f"💡 經過 **{invest_years}** 年的紀律投資，在沒有極端黑天鵝的情況下，您的資產預估將成長至 **${final_val_usd:,.2f} USD** (約合台幣 **{final_val_twd:,.0f} TWD**)。")
 
 # --- Tab 3: 期末報告專用 (已修正權重限制 5% ~ 45%) ---
 with tab3:
